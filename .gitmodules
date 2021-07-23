@@ -1,0 +1,6 @@
+[submodule "sdk"]
+	path = sdk
+	url = https://github.com/HallLabs/nRF5_SDK.git
+[submodule "lib"]
+	path = lib
+	url = https://github.com/kebes22/embedded_tools.git

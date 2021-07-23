@@ -1,0 +1,14 @@
+Initialization
+
+
+Scanner
+	Set filters
+	Start Scanning
+	Auto-connect (or other connection method)
+
+On connection
+	If peripheral, do nothing except propegate event up
+	If central, start discovery
+		After discovery 
+
+
