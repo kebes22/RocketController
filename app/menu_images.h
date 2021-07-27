@@ -1,7 +1,7 @@
 #ifndef MENU_IMAGES_H__
 #define MENU_IMAGES_H__
 
-#include "gfx_resources/tImage.h"
+#include "tLCD.h"
 
 //extern const unsigned char ArrowUpDown [];
 //extern const unsigned char ArrowLeftRight [];

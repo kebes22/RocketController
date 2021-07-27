@@ -49,7 +49,7 @@
 
 
 //sys_io_t sys.io;
-system_t sys;
+system_t sys = { 0 };
 
 //################################################################################
 //	Function prototypes
@@ -64,6 +64,7 @@ static TaskHandle_t m_ui_thread;
 static TimerHandle_t updateTimer;
 
 BUTTON_DEF(button, BUTTON_DEBOUNCE_COUNT);
+BUTTON_DEF(button2, BUTTON_DEBOUNCE_COUNT);
 BUTTON_DEF(buttonJ1B1, BUTTON_DEBOUNCE_COUNT);
 BUTTON_DEF(buttonJ2B1, BUTTON_DEBOUNCE_COUNT);
 
@@ -115,11 +116,15 @@ static SemaphoreHandle_t adc_semaphore;
 
 
 //static float vBatt = 0;
-
+#if 0
 //#define AN_COUNTS_PER_V		3048		// Measured
 #define AN_COUNTS_PER_V		3038		// Measured (Fluke 289)
 //#define AN_COUNTS_PER_V		762		// Measured
 //#define AN_COUNTS_PER_V		191		// Measured
+#else
+// Remapping based on external 5V supply
+#define AN_COUNTS_PER_V		3491		// Measured (Fluke 289)
+#endif
 
 static void _check_battery_voltage( void )
 {
@@ -157,7 +162,9 @@ static void _adc_init( void )
 	nrf_saadc_channel_config_t adc_channel_config_voltage = HL_ADC_SIMPLE_CONFIG_SE( VBATT_AN_IN, NRF_SAADC_REFERENCE_INTERNAL, NRF_SAADC_GAIN1_6 );
 	hl_adc_channel_register( &adc_channel_config_voltage, &sys.io.raw.vBatt, NULL );
 
+#if 0
 	nrf_saadc_channel_config_t adc_channel_config_joystick = HL_ADC_SIMPLE_CONFIG_SE( VBATT_JOY1X_IN, NRF_SAADC_REFERENCE_VDD4, NRF_SAADC_GAIN1_4 );
+	adc_channel_config_joystick.pin_p = VBATT_JOY1X_IN;
 	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy1x, NULL );
 	adc_channel_config_joystick.pin_p = VBATT_JOY1Y_IN;
 	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy1y, NULL );
@@ -170,6 +177,11 @@ static void _adc_init( void )
 	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy1trim, NULL );
 	adc_channel_config_joystick.pin_p = VBATT_JOY2_TRIM_IN;
 	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy2trim, NULL );
+#else
+	nrf_saadc_channel_config_t adc_channel_config_psi = HL_ADC_SIMPLE_CONFIG_SE( AN_PRESSURE_IN, NRF_SAADC_REFERENCE_INTERNAL, NRF_SAADC_GAIN1_3 );
+	hl_adc_channel_register( &adc_channel_config_psi, &sys.psi.current_raw, NULL );
+	
+#endif
 
 	hl_adc_init( &saadc_config, _adc_done_cb );
 	
@@ -188,24 +200,25 @@ static void _adc_sample_and_wait( void )
 //################################################################################
 //	Button stuff
 //################################################################################
-#define JOY_NAV_TH_HI				(13000)
-#define JOY_NAV_TH_LO				(3000)
+#define JOY_NAV_TH_HI				(600)
+#define JOY_NAV_TH_LO				(-600)
 
 //static float	vBattNominal = 4.2f;
 //static float	vBattNominal = 3.9f;
 
+static Menu_KeyBits_t menuKeyBits = { 0 };
 
 
 static Menu_KeyBits_t MenuKeys_Collect( void )
 {
 	float vRatio = sys.battery.voltage_raw / sys.battery.voltage;
 
-	Menu_KeyBits_t menuKeyBits = { 0 };
+	//Menu_KeyBits_t menuKeyBits = { 0 };
 
-	menuKeyBits.up		= sys.io.raw.joy2y > JOY_NAV_TH_HI;
-	menuKeyBits.down	= sys.io.raw.joy2y < JOY_NAV_TH_LO;
-	menuKeyBits.right	= sys.io.raw.joy2x > JOY_NAV_TH_HI;
-	menuKeyBits.left	= sys.io.raw.joy2x < JOY_NAV_TH_LO;
+	menuKeyBits.up		= sys.io.sticks.joy2y.value > JOY_NAV_TH_HI;
+	menuKeyBits.down	= sys.io.sticks.joy2y.value < JOY_NAV_TH_LO;
+	menuKeyBits.right	= sys.io.sticks.joy2x.value > JOY_NAV_TH_HI;
+	menuKeyBits.left	= sys.io.sticks.joy2x.value < JOY_NAV_TH_LO;
 
 	menuKeyBits.minus	= (	vRatio > (BUTTON_UP_NOMINAL_RATIO - BUTTON_NOMINAL_BAND)
 							&& vRatio < (BUTTON_UP_NOMINAL_RATIO + BUTTON_NOMINAL_BAND) );
@@ -216,11 +229,93 @@ static Menu_KeyBits_t MenuKeys_Collect( void )
 
 	menuKeyBits.select	= (	vRatio > (BUTTON_SEL_NOMINAL_RATIO - BUTTON_NOMINAL_BAND)
 							&& vRatio < (BUTTON_SEL_NOMINAL_RATIO + BUTTON_NOMINAL_BAND) )
-							|| buttonJ2B1.on;
+							|| buttonJ2B1.on || button2.on;
 
 	menuKeyBits.back	= button.on || buttonJ1B1.on;
 
 	return menuKeyBits;
+}
+
+//################################################################################
+//	Relay control
+//################################################################################
+#define PSI_HOLD_MARGIN		2
+#define ADC_PER_V_PSI		4551	// (1/2)/(0.6*3)*16385 at gain of 1/3
+//#define ADC_COMP_PSI		1.1f	// Coefficient of the correct answer (probably compensating for resistor divider load)
+#define ADC_COMP_PSI		1.05f	// Coefficient of the correct answer (probably compensating for resistor divider load)
+
+#define FILL_DELAY			40
+#define DUMP_DELAY			30
+#define FIRE_TIME			10
+
+void psi_update( void )
+{
+	sys.psi.current_mv = (float)sys.psi.current_raw / ADC_PER_V_PSI * ADC_COMP_PSI;
+	sys.psi.current = (int8_t)((sys.psi.current_mv - 0.5f) * 100.0f / 4.0f);
+
+	if ( sys.psi.current < 0 ) sys.psi.current = 0;
+	if ( sys.psi.target < 0 ) sys.psi.target = 0;
+	if ( sys.psi.target > 50 ) sys.psi.target = 50;
+}
+
+void Relays_Process( bool fire, bool forcce )
+{
+	static int delay = 0;
+    static bool old_fire = 0;
+
+	psi_update();
+
+	bool busy = (sys.psi.fill || sys.psi.dump);
+	
+	// Fire solenoid on rising edge, if not busy
+	if ( !busy && !old_fire && fire ) {
+		sys.psi.fire = fire;
+		delay = FIRE_TIME;
+	}
+
+	if ( sys.psi.fire && delay ) {
+		if ( --delay == 0 )
+			sys.psi.fire = false;
+	} else {
+		// Target is exact while filling/dumping, then relaxes for holding
+		int8_t margin = (busy || forcce)? 0: PSI_HOLD_MARGIN;
+		if ( sys.psi.current < sys.psi.target - margin && !sys.psi.dump ) {				// Only fill if not dumping
+			sys.psi.fill = true;
+			delay = FILL_DELAY;
+		} else if ( sys.psi.current > sys.psi.target + margin && !sys.psi.fill ) {		// Only dump if not filling
+			sys.psi.dump = true;
+			delay = DUMP_DELAY;
+		} else 	if ( delay ) {
+			delay--;
+		} else {
+			sys.psi.fill = false;
+			sys.psi.dump = false;
+		}
+	}
+
+    old_fire = fire;
+
+	nrf_gpio_pin_write( RELAY_1_OUT_PIN, sys.psi.fire );
+	nrf_gpio_pin_write( RELAY_2_OUT_PIN, sys.psi.fill );
+	nrf_gpio_pin_write( RELAY_3_OUT_PIN, sys.psi.dump );
+}
+
+
+void Relays_Init( void )
+{
+	nrf_gpio_pin_write( RELAY_1_OUT_PIN, 0 );
+	nrf_gpio_cfg_output( RELAY_1_OUT_PIN );
+	nrf_gpio_pin_write( RELAY_2_OUT_PIN, 0 );
+	nrf_gpio_cfg_output( RELAY_2_OUT_PIN );
+	nrf_gpio_pin_write( RELAY_3_OUT_PIN, 0 );
+	nrf_gpio_cfg_output( RELAY_3_OUT_PIN );
+	nrf_gpio_pin_write( RELAY_4_OUT_PIN, 0 );
+	nrf_gpio_cfg_output( RELAY_4_OUT_PIN );
+}
+
+void Relays_Off( void )
+{
+	Relays_Init();
 }
 
 
@@ -315,6 +410,8 @@ void 	init_system( void )
 
 bool	startup_check( void )
 {
+	return true; // NOTE because we don't have a suicide circuit
+
 	// Soft reset is valid for power on
 	uint32_t reset_reason = nrf_power_resetreas_get();
 	if ( reset_reason & NRF_POWER_RESETREAS_SREQ_MASK )
@@ -392,14 +489,30 @@ static void ui_thread( void * arg )
 		charger_update( &sys.charger, sys.battery.voltage );
 //		charger_update( &sys.charger, ((float)MapLimit16( sys.io.raw.joy1y, 0, 16383, 3400, 4200))/1000.0f );
 
+#if 0
 		analog_in_update( &sys.io.sticks.joy1x, sys.io.raw.joy1x );
 		analog_in_update( &sys.io.sticks.joy1y, sys.io.raw.joy1y );
 		analog_in_update( &sys.io.sticks.joy2x, sys.io.raw.joy2x );
 		analog_in_update( &sys.io.sticks.joy2y, sys.io.raw.joy2y );
+#else
+#define STICK_MID 8192
+		analog_in_update( &sys.io.sticks.joy1x, STICK_MID );
+		analog_in_update( &sys.io.sticks.joy1y, STICK_MID );
+		analog_in_update( &sys.io.sticks.joy2x, STICK_MID );
+		analog_in_update( &sys.io.sticks.joy2y, STICK_MID );
+#endif
 
 		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
+		ButtonProcess(&button2, !nrf_gpio_pin_read(BUTTON2_IN_PIN), UI_THREAD_INTERVAL);
+#if 0
 		ButtonProcess(&buttonJ1B1, !nrf_gpio_pin_read(BUTTON_J1B1_PIN), UI_THREAD_INTERVAL);
 		ButtonProcess(&buttonJ2B1, !nrf_gpio_pin_read(BUTTON_J2B1_PIN), UI_THREAD_INTERVAL);
+#else
+		ButtonProcess(&buttonJ1B1, 0, UI_THREAD_INTERVAL);
+		ButtonProcess(&buttonJ2B1, 0, UI_THREAD_INTERVAL);
+#endif
+
+		psi_update();
 
 		// TODO do stuff
 //		send_channels();
@@ -428,6 +541,7 @@ static void ui_thread( void * arg )
 		system_monitor();
 
 		ButtonClearEvents( &button );
+		ButtonClearEvents( &button2 );
 	}
 }
 
@@ -537,8 +651,13 @@ void	UI_Init( void )
 
 	TP1_INIT();
 	nrf_gpio_cfg_input( BUTTON1_IN_PIN, NRF_GPIO_PIN_PULLUP );
+	nrf_gpio_cfg_input( BUTTON2_IN_PIN, NRF_GPIO_PIN_PULLUP );
+#if 0
 	nrf_gpio_cfg_input( BUTTON_J1B1_PIN, NRF_GPIO_PIN_PULLUP );
 	nrf_gpio_cfg_input( BUTTON_J2B1_PIN, NRF_GPIO_PIN_PULLUP );
+#endif
+
+	Relays_Init();
 
 #ifdef BEEPER_PIN
 	nrf_gpio_cfg_output( BEEPER_PIN );

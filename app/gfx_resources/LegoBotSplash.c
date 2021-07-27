@@ -16,7 +16,7 @@
 *  inverse: yes
 *******************************************************************************/
 
-#include "tImage.h"
+#include "tLCD.h"
 
 static const uint8_t image_data_LegoBotSplash[1024] = {
     0x0f, 0xc8, 0xbe, 0xa7, 0x61, 0xb8, 0x8d, 0x75, 0x26, 0x44, 0x47, 0xc0, 0x85, 0x08, 0x68, 0x1a, 

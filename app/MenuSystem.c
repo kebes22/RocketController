@@ -312,6 +312,11 @@ static bool _processKeys( Menu_KeyBits_t keyBits )
 	if ( currentKeys.onEvent.left || currentKeys.repeatEvent.left ) selected2--;
 	if ( currentKeys.onEvent.right || currentKeys.repeatEvent.right ) selected2++;
 
+	if ( currentKeys.onEvent.minus || currentKeys.repeatEvent.minus ) selected1--;
+	if ( currentKeys.onEvent.plus || currentKeys.repeatEvent.plus ) selected1++;
+	if ( currentKeys.onEvent.minus || currentKeys.repeatEvent.minus ) selected2--;
+	if ( currentKeys.onEvent.plus || currentKeys.repeatEvent.plus ) selected2++;
+
 //	if ( currentKeys.onEvent.up || currentKeys.repeatEvent.up ) selected2--;
 //	if ( currentKeys.onEvent.down || currentKeys.repeatEvent.down ) selected2++;
 

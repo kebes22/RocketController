@@ -1,7 +1,7 @@
 #ifndef GFX_RESOURCES_H__
 #define GFX_RESOURCES_H__
 
-#include "tImage.h"
+#include "tLCD.h"
 
 extern const tImage LegoBotSplash;
 

@@ -3,6 +3,7 @@
 
 #include "sdk_common.h"
 #include "nrf_gfx.h"
+#include "tLCD.h"
 
 #define USE_NRF_GFX	0
 
@@ -272,34 +273,26 @@ void	GLCD_DrawBitmap( const uint8_t *bmp, int16_t x, int16_t y, bool invert )
 }
 
 
-//void	GLCD_Draw_tImage( const tImage *p_img, int16_t x, int16_t y, bool invert )
-void	GLCD_Draw_tImage( const tImage *p_img, int16_t x, int16_t y, drawMode_t mode )
-{
-	uint16_t width = p_img->width;
-	uint16_t height = p_img->height;
-	const uint8_t * p_data = p_img->data;
+//################################################################################
+//	tLCD support
+//################################################################################
+static drawMode_t tmode = DRAW_ON;
 
-	uint8_t row, col;
-	for ( row=y; row<y+height; row++ ) {
-		uint16_t colCount = width;
-		for ( col = x; col<x+width; ) {
-			uint8_t data = *p_data++;
-			uint8_t bits = 8;
-			if ( bits > colCount ) bits = colCount;
-			while ( bits-- ) {
-				bool on = (data & 0x80);
-//				if ( invert ) on = !on;
-				if ( on )
-					p_lcd->lcd_pixel_draw(col, row, mode);
-				col++;
-				colCount--;
-				data <<= 1;
-			}
-		}
-	}
+static void tLCD_pixel_callback( int16_t x, int16_t y )
+{
+	p_lcd->lcd_pixel_draw(x, y, tmode);
 }
 
+static void tLCD_Set_Mode( drawMode_t mode )
+{
+	tmode = mode;	
+}
 
+void GLCD_Draw_tImage( const tImage *p_img, int16_t x, int16_t y, drawMode_t mode )
+{
+	tLCD_Set_Mode( mode );
+    tLCD_Draw_Image( p_img, x, y );
+}
 
 //################################################################################
 //	Initialization
@@ -316,5 +309,7 @@ void	GLCD_Init( void )
 	GLCD_SetMode( DRAW_ON );
 
 	GLCD_SetFont( (font_t*)sysFont5x7 );
+
+    tLCD_init( tLCD_pixel_callback );
 }
 

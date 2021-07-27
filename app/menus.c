@@ -351,6 +351,82 @@ void	ControlMenu( void )
 //	}
 }
 
+char *	get_psi_str( uint8_t current, uint8_t target )
+{
+	sprintf( strBuf, "PSI: %d / %d", current, target );
+	return strBuf;
+}
+
+char *	get_psi_raw( void )
+{
+	sprintf( strBuf, "PSI Raw: %d", sys.psi.current_raw );
+	return strBuf;
+}
+
+void	PSI_Menu( void )
+{
+	EVENT_LOAD_MENU {
+		sys.psi.target = sys.psi.current;
+	}
+	
+	EVENT_UPDATE_INTERVAL( 10 ) {
+		SetCurrentUpdate( DRAW_UPDATE_MINOR );
+	}
+
+	uint8_t newTarget = sys.psi.target;
+	if ( currentKeys.onEvent.minus || currentKeys.repeatEvent.minus ) newTarget--;
+	if ( currentKeys.onEvent.plus || currentKeys.repeatEvent.plus ) newTarget++;
+	bool changed = newTarget != sys.psi.target;
+    sys.psi.target = newTarget;
+	Relays_Process( currentKeys.onState.select, changed );
+
+#if 0
+	MENU_START( "PSI CONTROLLER" );
+	MENU_ITEM_TEXT( get_psi_str( sys.psi.current, sys.psi.target ) );
+	//MENU_ITEM_TEXT( get_psi_raw() );
+	MENU_END();
+#else
+	//MENU_START( "PSI CONTROLLER" );
+	////MENU_ITEM_TEXT( "PSI:" );
+	//MENU_END();
+#endif
+
+#if 0
+	if ( lcdCurrentUpdate >= DRAW_UPDATE_MINOR ) {
+		font_t * newFont = (font_t*)Arial_bold_14;
+		font_t * oldFont = GLCD_SetFont( newFont );
+		GLCD_Goto( (64), (32) - (newFont->height>>1) );
+		sprintf( strBuf, "%d / %d PSI", sys.psi.current, sys.psi.target );
+		GLCD_PutStringAligned( strBuf, ALIGN_CENTER );
+		GLCD_SetFont( oldFont );
+	}
+#else
+	if ( lcdCurrentUpdate >= DRAW_UPDATE_MINOR ) {
+		gFrame_Clear( &menuFrame.outer );
+		sprintf( strBuf, "%d/%d", sys.psi.current, sys.psi.target );
+		tFont * p_font = &ArialBlack36;
+		int16_t x = 64 - (tLCD_Get_String_Length(strBuf, p_font) / 2);
+		int16_t y = 2;
+		tLCD_Print_String( strBuf, p_font, x, y );
+
+		sprintf( strBuf, "PSI", sys.psi.current, sys.psi.target );
+        x = 64 - (tLCD_Get_String_Length(strBuf, p_font) / 2);
+		//y += tLCD_Get_Font_Height(p_font);
+		y += 30;
+		tLCD_Print_String( strBuf, p_font, x, y );
+	}
+#endif
+
+	EVENT_BACK_KEY {
+		MenuPop();
+	}
+
+	EVENT_EXIT_MENU {
+		Relays_Off();
+	}
+}
+
+
 void	MainMenu( void )
 {
 	EVENT_LOAD_MENU { SetCurrentUpdate( DRAW_UPDATE_MAJOR ); }
@@ -360,7 +436,8 @@ void	MainMenu( void )
 		GLCD_Draw_tImage( &LegoBotSplash, 0, 0, DRAW_ON );
 
 	EVENT_UPDATE_INTERVAL( 200 ) {
-		MenuPush(ControlMenu);
+		//MenuPush(ControlMenu);
+		MenuPush(PSI_Menu);
 	}
 }
 

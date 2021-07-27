@@ -119,15 +119,30 @@ typedef struct
 	bool				connected;
 } sys_status_t;
 
+typedef struct
+{
+	int8_t	current;
+	int8_t	target;
+
+	bool	fire;
+	bool	fill;
+	bool	dump;
+
+	nrf_saadc_value_t	current_raw;
+	float				current_mv;
+
+} psi_controller_t;
+
 //################################################################################
 //	System main structure
 //################################################################################
 typedef struct
 {
 	sys_settings_t		settings;
-    sys_io_t			io;
-    battery_status_t	battery;
-    mcp73833_t			charger;
+	sys_io_t			io;
+	battery_status_t	battery;
+	mcp73833_t			charger;
+	psi_controller_t	psi;
 } system_t;
 
 extern system_t sys;
@@ -140,6 +155,9 @@ extern system_t sys;
 void UI_Init(void);
 
 void UI_on_connect( bool connected );
+
+void Relays_Process( bool fire, bool force );
+void Relays_Off( void );
 
 #ifdef __cplusplus
 }
