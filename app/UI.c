@@ -26,6 +26,8 @@
 
 #include "WS2812_I2S.h"
 #include "RGB.h"
+#include "RGB_Fader.h"
+
 #include "hardware.h"
 
 #include "ppm_capture.h"
@@ -43,8 +45,11 @@
 #define UI_THREAD_INTERVAL		10
 //#define UI_THREAD_INTERVAL		20
 
-#define UI_COLOR_UPDATE_INTERVAL	1000
+//#define UI_COLOR_UPDATE_INTERVAL	1000
 
+
+#define UI_THREAD_INTERVAL		10
+#define COLOR_FADE_TIME			500
 
 
 
@@ -73,20 +78,86 @@ static int16_t repeatDelay	= 0;
 //################################################################################
 //	LED stuff
 //################################################################################
-RGB_Color_t		userLED;
+#define NUM_LEDS				4
+#define LED_UPDATE_INTERVAL		10
 
-static RGB_Color_t const * color_list[] = {
-	&RGB_COLOR.RED,
-	&RGB_COLOR.GREEN,
-	&RGB_COLOR.BLUE,
+WS2812_I2S_STRIP_DEF( leds, NUM_LEDS, true );
 
-//	&RGB_COLOR.CYAN,
-	&RGB_COLOR.MAGENTA,
-	&RGB_COLOR.YELLOW,
-};
+//RGB_Color_t		userLED;
 
-#define NUM_COLORS	ARRAY_SIZE(color_list)
-int8_t color_index = 0;
+//static RGB_Color_t const * color_list[] = {
+//	&RGB_COLOR.RED,
+//	&RGB_COLOR.GREEN,
+//	&RGB_COLOR.BLUE,
+
+////	&RGB_COLOR.CYAN,
+//	&RGB_COLOR.MAGENTA,
+//	&RGB_COLOR.YELLOW,
+//};
+
+//#define NUM_COLORS	ARRAY_SIZE(color_list)
+//int8_t color_index = 0;
+
+//################################################################################
+//	RGB/Fader Handling
+//################################################################################
+RGB_Fader_t rgbFaders[NUM_LEDS];
+
+static void FaderProcess( uint8_t steps )
+{
+	RGB_Color_t tempColor;
+	uint8_t i = 0;
+	for ( i=0; i<NUM_LEDS; i++ ) {									// Process individual LEDs
+		tempColor = RGB_Fader_Process( &rgbFaders[i], steps );		// Fade Colors
+		leds.p_leds[i] = tempColor;									// Write color
+	}
+}
+
+void FaderInit( void )
+{
+	uint8_t i = 0;
+	for ( i=0; i<NUM_LEDS; i++ ) {
+		leds.p_leds[i] = RGB_Fader_SetTarget( &rgbFaders[i], (RGB_Color_t){ 0, 0, 0 }, 0 );
+	}
+}
+
+//################################################################################
+//	LED strip initialization
+//################################################################################
+static TimerHandle_t m_ledTimer;
+
+static void led_timer_handler( TimerHandle_t xTimer )
+{
+	FaderProcess( LED_UPDATE_INTERVAL );
+	WS2812_Update( &leds );
+}
+
+static void led_timer_init( void )
+{
+	m_ledTimer = xTimerCreate("LED", LED_UPDATE_INTERVAL, pdTRUE, NULL, led_timer_handler);
+	if (pdPASS != xTimerStart(m_ledTimer, 2)) {
+		APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
+	}
+}
+
+static void LedsInit( void )
+{
+	// TODO fix the dummy pins
+	WS2812_I2S_Init_t init = {
+		.pinNo = LED_DAT_PIN,
+		.dummyPin1	= 3,
+		.dummyPin2	= 2,
+	};
+	//WS2812_I2S_Init_t init = {
+	//	.pinNo = 3,
+	//	.dummyPin1	= 2,
+	//	.dummyPin2	= LED_DAT_PIN,
+	//};
+	WS2812_Init( &leds, &init );
+	FaderInit();
+	led_timer_init();
+}
+
 
 //################################################################################
 //	Battery Button stuff
@@ -503,6 +574,7 @@ static void ui_thread( void * arg )
 #endif
 
 		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
+//		ButtonProcess(&button, 0, UI_THREAD_INTERVAL);
 		ButtonProcess(&button2, !nrf_gpio_pin_read(BUTTON2_IN_PIN), UI_THREAD_INTERVAL);
 #if 0
 		ButtonProcess(&buttonJ1B1, !nrf_gpio_pin_read(BUTTON_J1B1_PIN), UI_THREAD_INTERVAL);
@@ -517,15 +589,17 @@ static void ui_thread( void * arg )
 		// TODO do stuff
 //		send_channels();
 
+		if ( button.onTime > BUTTON_SUICIDE_TIME ) {
+			_do_suicide();
+		}
+		
+
+#if 0
 		if ( button.offEvent && button.offEvent < BUTTON_SHORTPRESS_TIME ) {
 			if ( ++color_index >= NUM_COLORS ) color_index = 0;
             update_delay = 0;
 		}
 
-		if ( button.onTime > BUTTON_SUICIDE_TIME ) {
-			_do_suicide();
-		}
-		
 		// Process LED update code
 		update_delay -= UI_THREAD_INTERVAL;
 		if ( update_delay <= 0 ) {
@@ -535,6 +609,7 @@ static void ui_thread( void * arg )
 			if ( NRF_SUCCESS == send_color( (uint8_t*)&userLED ) )
 				update_delay = UI_COLOR_UPDATE_INTERVAL;
 		}
+#endif
 
 		MenuUpdate( MenuKeys_Collect() );
 
@@ -651,7 +726,7 @@ void	UI_Init( void )
 
 	TP1_INIT();
 	nrf_gpio_cfg_input( BUTTON1_IN_PIN, NRF_GPIO_PIN_PULLUP );
-	nrf_gpio_cfg_input( BUTTON2_IN_PIN, NRF_GPIO_PIN_PULLUP );
+	//nrf_gpio_cfg_input( BUTTON2_IN_PIN, NRF_GPIO_PIN_PULLUP );
 #if 0
 	nrf_gpio_cfg_input( BUTTON_J1B1_PIN, NRF_GPIO_PIN_PULLUP );
 	nrf_gpio_cfg_input( BUTTON_J2B1_PIN, NRF_GPIO_PIN_PULLUP );
@@ -668,6 +743,13 @@ void	UI_Init( void )
 	nrf_gpio_cfg_output( LED_PWM_PIN );
 	nrf_gpio_pin_write( LED_PWM_PIN, 0 );
 #endif
+	
+    LedsInit();
+	RGB_Fader_SetTarget( &rgbFaders[0], RGB_COLOR.MAGENTA, 1000 );
+	RGB_Fader_SetTarget( &rgbFaders[1], RGB_COLOR.MAGENTA, 1000 );
+	RGB_Fader_SetTarget( &rgbFaders[2], RGB_COLOR.MAGENTA, 1000 );
+	RGB_Fader_SetTarget( &rgbFaders[3], RGB_COLOR.MAGENTA, 1000 );
+
 
 	_adc_init();
 

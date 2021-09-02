@@ -225,6 +225,7 @@
         <file file_name="$(LIB_PATH)/drivers/suicide_pin.h" />
         <file file_name="../../lib/drivers/hl_adc.c" />
         <file file_name="../../lib/drivers/hl_adc.h" />
+        <file file_name="../../lib/drivers/RGB_Fader.c" />
       </folder>
       <folder Name="core">
         <file file_name="$(LIB_PATH)/core/lib_core.c" />
@@ -248,6 +249,12 @@
     </folder>
   </project>
   <configuration
+    Name="Release v0.1"
+    inherited_configurations="Release;v0.1 Hardware" />
+  <configuration
+    Name="Debug v0.1"
+    inherited_configurations="Debug;v0.1 Hardware" />
+  <configuration
     Name="Release v1.0"
     inherited_configurations="Release;v1.0 Hardware" />
   <configuration
@@ -265,6 +272,10 @@
   <configuration
     Name="Release"
     c_preprocessor_definitions="NDEBUG"
+    hidden="Yes" />
+  <configuration
+    Name="v0.1 Hardware"
+    c_preprocessor_definitions="BOARD_VERSION=01"
     hidden="Yes" />
   <configuration
     Name="v1.0 Hardware"
