@@ -100,13 +100,25 @@
 #define AN_PRESSURE_IN			EXT_AN_IN_1
 
 
+//#define RELAY_1_OUT_PIN			19
+//#define RELAY_2_OUT_PIN			17
+//#define RELAY_3_OUT_PIN			29
+//#define RELAY_4_OUT_PIN			27
 #define RELAY_1_OUT_PIN			19
-#define RELAY_2_OUT_PIN			17
-#define RELAY_3_OUT_PIN			29
-#define RELAY_4_OUT_PIN			27
+#define RELAY_2_OUT_PIN			19
+#define RELAY_3_OUT_PIN			19
+#define RELAY_4_OUT_PIN			19
 
 #define LED_DAT_PIN				9
-//#define LED_DAT_PIN				4
+//#define LED_DUMMY1_PIN			29	// Relay pin
+//#define LED_DUMMY2_PIN			27	//
+#define LED_DUMMY1_PIN			14	// SDC pins
+#define LED_DUMMY2_PIN			15	// SDC pins
+//#define LED_DUMMY1_PIN			14
+//#define LED_DUMMY2_PIN			15
+//#define LED_DUMMY1_PIN			0xFF
+//#define LED_DUMMY2_PIN			0xFF
+
 
 #define TP1_PIN					21
 #define TP1_INIT()	nrf_gpio_cfg_output(TP1_PIN)

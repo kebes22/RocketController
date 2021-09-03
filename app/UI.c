@@ -145,14 +145,9 @@ static void LedsInit( void )
 	// TODO fix the dummy pins
 	WS2812_I2S_Init_t init = {
 		.pinNo = LED_DAT_PIN,
-		.dummyPin1	= 3,
-		.dummyPin2	= 2,
+		.dummyPin1	= LED_DUMMY1_PIN,
+		.dummyPin2	= LED_DUMMY2_PIN,
 	};
-	//WS2812_I2S_Init_t init = {
-	//	.pinNo = 3,
-	//	.dummyPin1	= 2,
-	//	.dummyPin2	= LED_DAT_PIN,
-	//};
 	WS2812_Init( &leds, &init );
 	FaderInit();
 	led_timer_init();
@@ -251,11 +246,11 @@ static void _adc_init( void )
 #else
 	nrf_saadc_channel_config_t adc_channel_config_psi = HL_ADC_SIMPLE_CONFIG_SE( AN_PRESSURE_IN, NRF_SAADC_REFERENCE_INTERNAL, NRF_SAADC_GAIN1_3 );
 	hl_adc_channel_register( &adc_channel_config_psi, &sys.psi.current_raw, NULL );
-	
+
 #endif
 
 	hl_adc_init( &saadc_config, _adc_done_cb );
-	
+
 	adc_semaphore = xSemaphoreCreateBinary();
 }
 
@@ -337,7 +332,7 @@ void Relays_Process( bool fire, bool forcce )
 	psi_update();
 
 	bool busy = (sys.psi.fill || sys.psi.dump);
-	
+
 	// Fire solenoid on rising edge, if not busy
 	if ( !busy && !old_fire && fire ) {
 		sys.psi.fire = fire;
@@ -536,12 +531,12 @@ static void ui_thread( void * arg )
 	_beeper_on();
 	vTaskDelay( 50 );
 	_beeper_off();
-	
-	
+
+
 	Devices_Init();  // Initializes flash memory.
 
 //	advertising_start(BLE_ADV_MODE_FAST);
-	
+
 	update_delay = 0;
 
 	while ( 1 )
@@ -592,7 +587,7 @@ static void ui_thread( void * arg )
 		if ( button.onTime > BUTTON_SUICIDE_TIME ) {
 			_do_suicide();
 		}
-		
+
 
 #if 0
 		if ( button.offEvent && button.offEvent < BUTTON_SHORTPRESS_TIME ) {
@@ -665,7 +660,7 @@ static void _tx_timer_handler( TimerHandle_t xTimer )
 				channels[0] = Limit( -x - y, -500, 500 ) + 1500;
 				channels[1] = Limit( -x + y, -500, 500 ) + 1500;
 				break;
-		
+
 			case STICK_MODE_SINGLE_LEFT:
 				x = Map16( sys.io.raw.joy1x, 0, 16383, -250, 250 );
 				y = Map16( sys.io.raw.joy1y, 0, 16383, -500, 500 );
@@ -743,7 +738,7 @@ void	UI_Init( void )
 	nrf_gpio_cfg_output( LED_PWM_PIN );
 	nrf_gpio_pin_write( LED_PWM_PIN, 0 );
 #endif
-	
+
     LedsInit();
 	RGB_Fader_SetTarget( &rgbFaders[0], RGB_COLOR.MAGENTA, 1000 );
 	RGB_Fader_SetTarget( &rgbFaders[1], RGB_COLOR.MAGENTA, 1000 );
