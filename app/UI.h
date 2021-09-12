@@ -6,7 +6,8 @@
 //#include <stdbool.h>
 #include "hl_adc.h"
 #include "mcp73833_lipo.h"
-#include "analog_stick.h"
+//#include "analog_stick.h"
+#include "RocketRelay.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,7 +48,15 @@ extern "C" {
 #define LCD_CONTRAST_INC		5
 #define LCD_CONTRAST_UNIT		"%"
 
+#define AIR_FIRE_PULSE_MIN		20
+#define AIR_FIRE_PULSE_MAX		500
+#define AIR_FIRE_PULSE_INC		10
+#define AIR_FIRE_PULSE_UNIT		"ms"
 
+#define AIR_FIRE_PRESSURE_MIN	10
+#define AIR_FIRE_PRESSURE_MAX	100
+#define AIR_FIRE_PRESSURE_INC	5
+#define AIR_FIRE_PRESSURE_UNIT	"psi"
 
 //################################################################################
 //	System sub-structures
@@ -64,18 +73,18 @@ typedef struct
 	nrf_saadc_value_t	joy2trim;
 } sys_an_raw_t;
 
-typedef struct
-{
-	analog_in_t			joy1x;
-	analog_in_t			joy1y;
-	analog_in_t			joy2x;
-	analog_in_t			joy2y;
-} sys_sticks_t;
+//typedef struct
+//{
+//	analog_in_t			joy1x;
+//	analog_in_t			joy1y;
+//	analog_in_t			joy2x;
+//	analog_in_t			joy2y;
+//} sys_sticks_t;
 
 typedef struct
 {
 	sys_an_raw_t		raw;
-	sys_sticks_t		sticks;
+	//sys_sticks_t		sticks;
 } sys_io_t;
 
 typedef struct
@@ -97,25 +106,37 @@ typedef enum
 
 typedef struct
 {
-	uint8_t				contrast;
-	uint8_t				bl_bright;
-	uint8_t				bl_delay;
+	struct {
+		uint8_t			contrast;
+		uint8_t			bl_bright;
+		uint8_t			bl_delay;
+	} display;
 
 	struct {
-		int8_t			enable;
-		int8_t			delay;
-		int16_t			voltage;
-	} auto_discharge;
+		uint8_t			activity_delay;
+		struct {
+			int8_t		enable;
+			int8_t		delay;
+			int16_t		voltage;
+		} auto_discharge;
+	} power;
 
 	struct {
 		stick_mode_t	mode;
 		bool			enable;
 	} stick;
+
+	struct {
+		int16_t			fire_pulse;
+		int16_t			max_pressure;
+	} air;
+
 } sys_settings_t;
 
 typedef struct
 {
 	// TODO fill this structure
+	bool				isOn;
 	bool				connected;
 } sys_status_t;
 
@@ -133,16 +154,45 @@ typedef struct
 
 } psi_controller_t;
 
+
+typedef struct
+{
+	nrf_saadc_value_t	raw;
+	float				voltage;
+} analog_buf_t;
+
+typedef struct
+{
+	analog_buf_t		an1;
+	analog_buf_t		an2;
+	analog_buf_t		an3;
+	analog_buf_t		an4;
+} analog_inputs_t;
+
+typedef struct
+{
+	RocketRelay_t		relay1;
+	RocketRelay_t		relay2;
+	RocketRelay_t		relay3;
+	RocketRelay_t		relay4;
+	RocketRelay_t		relay5;	// beeper
+} relays_t;
+
+
 //################################################################################
 //	System main structure
 //################################################################################
 typedef struct
 {
 	sys_settings_t		settings;
+	sys_status_t		status;
 	sys_io_t			io;
 	battery_status_t	battery;
 	mcp73833_t			charger;
 	psi_controller_t	psi;
+
+	analog_inputs_t		analog;
+    relays_t			relays;
 } system_t;
 
 extern system_t sys;

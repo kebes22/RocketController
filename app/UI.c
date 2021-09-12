@@ -78,7 +78,7 @@ static int16_t repeatDelay	= 0;
 //################################################################################
 //	LED stuff
 //################################################################################
-#define NUM_LEDS				4
+#define NUM_LEDS				5
 #define LED_UPDATE_INTERVAL		10
 
 WS2812_I2S_STRIP_DEF( leds, NUM_LEDS, true );
@@ -153,6 +153,13 @@ static void LedsInit( void )
 	led_timer_init();
 }
 
+static void LedsKill( void )
+{
+	xTimerStop(m_ledTimer, 2);
+	WS2812_Clear(&leds);
+    WS2812_Update(&leds);
+
+}
 
 //################################################################################
 //	Battery Button stuff
@@ -180,6 +187,7 @@ static void batt_button_process( float vBatt )
 //################################################################################
 static SemaphoreHandle_t adc_semaphore;
 
+#define ADC_PER_V_AN5V		3414	// (1/2)/(0.6*4)*16385 at gain of 1/4
 
 //static float vBatt = 0;
 #if 0
@@ -190,6 +198,7 @@ static SemaphoreHandle_t adc_semaphore;
 #else
 // Remapping based on external 5V supply
 #define AN_COUNTS_PER_V		3491		// Measured (Fluke 289)
+//#define AN_COUNTS_PER_V		3414	// (1/3)/(0.6*6)*16385 at gain of 1/6
 #endif
 
 static void _check_battery_voltage( void )
@@ -207,6 +216,14 @@ static void _adc_done_cb( void )
 	// Process battery voltage
 	sys.battery.voltage_raw = (float)sys.io.raw.vBatt / AN_COUNTS_PER_V;
 	batt_button_process( sys.battery.voltage_raw );
+
+	analog_buf_t * ptr = (analog_buf_t *)&sys.analog;
+	for ( int i=0; i<(sizeof(analog_inputs_t) / sizeof(analog_buf_t)) ; i++ ) {
+		ptr->voltage = (float)ptr->raw / ADC_PER_V_AN5V;
+        ptr++;
+    }
+
+	sys.psi.current_raw = sys.analog.an1.raw;
 
 //	_check_battery_voltage();
 
@@ -228,26 +245,14 @@ static void _adc_init( void )
 	nrf_saadc_channel_config_t adc_channel_config_voltage = HL_ADC_SIMPLE_CONFIG_SE( VBATT_AN_IN, NRF_SAADC_REFERENCE_INTERNAL, NRF_SAADC_GAIN1_6 );
 	hl_adc_channel_register( &adc_channel_config_voltage, &sys.io.raw.vBatt, NULL );
 
-#if 0
-	nrf_saadc_channel_config_t adc_channel_config_joystick = HL_ADC_SIMPLE_CONFIG_SE( VBATT_JOY1X_IN, NRF_SAADC_REFERENCE_VDD4, NRF_SAADC_GAIN1_4 );
-	adc_channel_config_joystick.pin_p = VBATT_JOY1X_IN;
-	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy1x, NULL );
-	adc_channel_config_joystick.pin_p = VBATT_JOY1Y_IN;
-	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy1y, NULL );
-	adc_channel_config_joystick.pin_p = VBATT_JOY2X_IN;
-	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy2x, NULL );
-	adc_channel_config_joystick.pin_p = VBATT_JOY2Y_IN;
-	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy2y, NULL );
-
-	adc_channel_config_joystick.pin_p = VBATT_JOY1_TRIM_IN;
-	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy1trim, NULL );
-	adc_channel_config_joystick.pin_p = VBATT_JOY2_TRIM_IN;
-	hl_adc_channel_register( &adc_channel_config_joystick, &sys.io.raw.joy2trim, NULL );
-#else
-	nrf_saadc_channel_config_t adc_channel_config_psi = HL_ADC_SIMPLE_CONFIG_SE( AN_PRESSURE_IN, NRF_SAADC_REFERENCE_INTERNAL, NRF_SAADC_GAIN1_3 );
-	hl_adc_channel_register( &adc_channel_config_psi, &sys.psi.current_raw, NULL );
-
-#endif
+	nrf_saadc_channel_config_t adc_channel_config = HL_ADC_SIMPLE_CONFIG_SE( EXT_AN_IN_1, NRF_SAADC_REFERENCE_INTERNAL, NRF_SAADC_GAIN1_4 );
+	hl_adc_channel_register( &adc_channel_config, &sys.analog.an1.raw, NULL );
+	adc_channel_config.pin_p = EXT_AN_IN_2;
+	hl_adc_channel_register( &adc_channel_config, &sys.analog.an2.raw, NULL );
+	adc_channel_config.pin_p = EXT_AN_IN_3;
+	hl_adc_channel_register( &adc_channel_config, &sys.analog.an3.raw, NULL );
+	adc_channel_config.pin_p = EXT_AN_IN_4;
+	hl_adc_channel_register( &adc_channel_config, &sys.analog.an4.raw, NULL );
 
 	hl_adc_init( &saadc_config, _adc_done_cb );
 
@@ -281,10 +286,10 @@ static Menu_KeyBits_t MenuKeys_Collect( void )
 
 	//Menu_KeyBits_t menuKeyBits = { 0 };
 
-	menuKeyBits.up		= sys.io.sticks.joy2y.value > JOY_NAV_TH_HI;
-	menuKeyBits.down	= sys.io.sticks.joy2y.value < JOY_NAV_TH_LO;
-	menuKeyBits.right	= sys.io.sticks.joy2x.value > JOY_NAV_TH_HI;
-	menuKeyBits.left	= sys.io.sticks.joy2x.value < JOY_NAV_TH_LO;
+	//menuKeyBits.up		= sys.io.sticks.joy2y.value > JOY_NAV_TH_HI;
+	//menuKeyBits.down	= sys.io.sticks.joy2y.value < JOY_NAV_TH_LO;
+	//menuKeyBits.right	= sys.io.sticks.joy2x.value > JOY_NAV_TH_HI;
+	//menuKeyBits.left	= sys.io.sticks.joy2x.value < JOY_NAV_TH_LO;
 
 	menuKeyBits.minus	= (	vRatio > (BUTTON_UP_NOMINAL_RATIO - BUTTON_NOMINAL_BAND)
 							&& vRatio < (BUTTON_UP_NOMINAL_RATIO + BUTTON_NOMINAL_BAND) );
@@ -295,7 +300,7 @@ static Menu_KeyBits_t MenuKeys_Collect( void )
 
 	menuKeyBits.select	= (	vRatio > (BUTTON_SEL_NOMINAL_RATIO - BUTTON_NOMINAL_BAND)
 							&& vRatio < (BUTTON_SEL_NOMINAL_RATIO + BUTTON_NOMINAL_BAND) )
-							|| buttonJ2B1.on || button2.on;
+							|| sys.analog.an4.voltage > 1.5;//|| buttonJ2B1.on || button2.on;
 
 	menuKeyBits.back	= button.on || buttonJ1B1.on;
 
@@ -310,37 +315,61 @@ static Menu_KeyBits_t MenuKeys_Collect( void )
 //#define ADC_COMP_PSI		1.1f	// Coefficient of the correct answer (probably compensating for resistor divider load)
 #define ADC_COMP_PSI		1.05f	// Coefficient of the correct answer (probably compensating for resistor divider load)
 
-#define FILL_DELAY			40
-#define DUMP_DELAY			30
-#define FIRE_TIME			10
+#define FILL_DELAY			40		// In 10ms
+#define DUMP_DELAY			30		// In 10ms
+#define FIRE_TIME			100		// In ms
+
+
+#define RELAY_INIT(_num)						\
+	RocketRelay_Config_t config ## _num = {		\
+		.outPin = RELAY_ ## _num ## _OUT_PIN,	\
+		.inPin = RELAY_ ## _num ## _IN_PIN		\
+	};											\
+    RocketRelay_Init(&sys.relays.relay ## _num, &config ## _num)
+
+#define RELAY_UPDATE(_num)	do {	\
+		RocketRelay_Process(&sys.relays.relay ## _num, UI_THREAD_INTERVAL);	\
+		uint8_t status = (sys.relays.relay ## _num).status;					\
+		RGB_Fader_SetTarget( &rgbFaders[(_num-1)], status==RR_STATUS_READY? RGB_COLOR.GREEN_DIM: (status==RR_STATUS_ON? RGB_COLOR.BLUE: RGB_COLOR.RED_DIM), 50 );	\
+	} while (0)
+
+#define RELAY_SET(_num,_state)	RocketRelay_Set(&sys.relays.relay ## _num, _state)
+#define BEEP(_time)				RocketRelay_On(&sys.relays.relay5, _time)
+#define FIRE(_time)				RocketRelay_On(&sys.relays.relay3, _time)
+#define IS_FIRING()				(sys.relays.relay3.isOn)
 
 void psi_update( void )
 {
-	sys.psi.current_mv = (float)sys.psi.current_raw / ADC_PER_V_PSI * ADC_COMP_PSI;
+	sys.psi.current_mv = sys.analog.an1.voltage * ADC_COMP_PSI;
 	sys.psi.current = (int8_t)((sys.psi.current_mv - 0.5f) * 100.0f / 4.0f);
 
 	if ( sys.psi.current < 0 ) sys.psi.current = 0;
 	if ( sys.psi.target < 0 ) sys.psi.target = 0;
-	if ( sys.psi.target > 50 ) sys.psi.target = 50;
+	if ( sys.psi.target > sys.settings.air.max_pressure ) sys.psi.target = sys.settings.air.max_pressure;
 }
+
 
 void Relays_Process( bool fire, bool forcce )
 {
 	static int delay = 0;
-    static bool old_fire = 0;
+    static bool old_fire = 0, old_busy = false;
 
 	psi_update();
 
 	bool busy = (sys.psi.fill || sys.psi.dump);
+	if ( !busy && old_busy ) {
+		BEEP(50);
+    }
 
 	// Fire solenoid on rising edge, if not busy
 	if ( !busy && !old_fire && fire ) {
 		sys.psi.fire = fire;
-		delay = FIRE_TIME;
+		FIRE(sys.settings.air.fire_pulse);
+		BEEP(50);
 	}
 
-	if ( sys.psi.fire && delay ) {
-		if ( --delay == 0 )
+	if ( sys.psi.fire ) {
+		if ( !IS_FIRING() )
 			sys.psi.fire = false;
 	} else {
 		// Target is exact while filling/dumping, then relaxes for holding
@@ -359,24 +388,35 @@ void Relays_Process( bool fire, bool forcce )
 		}
 	}
 
-    old_fire = fire;
+	old_fire = fire;
+    old_busy = busy;
 
-	nrf_gpio_pin_write( RELAY_1_OUT_PIN, sys.psi.fire );
-	nrf_gpio_pin_write( RELAY_2_OUT_PIN, sys.psi.fill );
-	nrf_gpio_pin_write( RELAY_3_OUT_PIN, sys.psi.dump );
+	RELAY_SET( 1, sys.psi.fill );
+	RELAY_SET( 2, sys.psi.dump );
+	RELAY_SET( 4, 0 );
 }
-
 
 void Relays_Init( void )
 {
-	nrf_gpio_pin_write( RELAY_1_OUT_PIN, 0 );
-	nrf_gpio_cfg_output( RELAY_1_OUT_PIN );
-	nrf_gpio_pin_write( RELAY_2_OUT_PIN, 0 );
-	nrf_gpio_cfg_output( RELAY_2_OUT_PIN );
-	nrf_gpio_pin_write( RELAY_3_OUT_PIN, 0 );
-	nrf_gpio_cfg_output( RELAY_3_OUT_PIN );
-	nrf_gpio_pin_write( RELAY_4_OUT_PIN, 0 );
-	nrf_gpio_cfg_output( RELAY_4_OUT_PIN );
+	RELAY_INIT(1);
+	RELAY_INIT(2);
+	RELAY_INIT(3);
+	RELAY_INIT(4);
+	RELAY_INIT(5);	// Beeper
+
+	//RocketRelay_Config_t config1 = {
+	//	uint8_t		outPin;
+	//	uint8_t		inPin;
+	//}
+	//RocketRelay_Init(sys.relays.relay1, )
+	//nrf_gpio_pin_write( RELAY_1_OUT_PIN, 0 );
+	//nrf_gpio_cfg_output( RELAY_1_OUT_PIN );
+	//nrf_gpio_pin_write( RELAY_2_OUT_PIN, 0 );
+	//nrf_gpio_cfg_output( RELAY_2_OUT_PIN );
+	//nrf_gpio_pin_write( RELAY_3_OUT_PIN, 0 );
+	//nrf_gpio_cfg_output( RELAY_3_OUT_PIN );
+	//nrf_gpio_pin_write( RELAY_4_OUT_PIN, 0 );
+	//nrf_gpio_cfg_output( RELAY_4_OUT_PIN );
 }
 
 void Relays_Off( void )
@@ -384,6 +424,14 @@ void Relays_Off( void )
 	Relays_Init();
 }
 
+void Relays_Update( void )
+{
+	RELAY_UPDATE(1);
+	RELAY_UPDATE(2);
+	RELAY_UPDATE(3);
+	RELAY_UPDATE(4);
+	RELAY_UPDATE(5);
+}
 
 //################################################################################
 //	Utilities
@@ -404,9 +452,16 @@ static void _do_suicide( void )
 {
 //	if ( charger.chargeState != CHG_SHUTDOWN )
 //		return;
+
+	if ( sys.status.isOn )					// Only beep on shutdown if we successfully powered on
+		nrf_gpio_pin_set( BEEPER_PIN );
+    // Turn off all lights
 	nrf_gpio_pin_clear( LED_PWM_PIN );
+    LedsKill();
+
 	vTaskDelay(50);
-//	nrf_gpio_pin_write( EN_5V_PIN, 0 );	// Turn off leds
+	nrf_gpio_pin_clear( BEEPER_PIN );
+
 	suicide();
 }
 
@@ -435,7 +490,7 @@ void UI_on_connect( bool connected )
 void	run_backlight( void )
 {
 	static uint8_t count = 0;
-	nrf_gpio_pin_write( LED_PWM_PIN, ( count < sys.settings.bl_bright ) );
+	nrf_gpio_pin_write( LED_PWM_PIN, ( count < sys.settings.display.bl_bright ) );
 	if ( ++count >= 100 )
 		count = 0;
 }
@@ -446,11 +501,11 @@ void	system_monitor( void )
 
 	static sys_settings_t oldSettings = { 0 };
 
-	if ( sys.settings.bl_bright != oldSettings.bl_bright ) {
+	if ( sys.settings.display.bl_bright != oldSettings.display.bl_bright ) {
 	}
-	if ( sys.settings.bl_delay != oldSettings.bl_delay ) {
+	if ( sys.settings.display.bl_delay != oldSettings.display.bl_delay ) {
 	}
-	if ( sys.settings.contrast != oldSettings.contrast ) {
+	if ( sys.settings.display.contrast != oldSettings.display.contrast ) {
 	}
 
     oldSettings = sys.settings;
@@ -458,16 +513,24 @@ void	system_monitor( void )
 
 void 	init_system( void )
 {
-	sys.settings.bl_bright = 100;
-	sys.settings.bl_delay = 10;
-	sys.settings.contrast = 50;
+	memset( &sys, 0, sizeof(sys) );
 
-	sys.settings.auto_discharge.enable = true;
-	sys.settings.auto_discharge.delay = 3;
-	sys.settings.auto_discharge.voltage = 380;
+    sys.status.isOn = false;
+
+	sys.settings.display.bl_bright = 100;
+	sys.settings.display.bl_delay = 10;
+	sys.settings.display.contrast = 50;
+
+	sys.settings.power.activity_delay = 5;
+	sys.settings.power.auto_discharge.enable = true;
+	sys.settings.power.auto_discharge.delay = 3;
+	sys.settings.power.auto_discharge.voltage = 380;
 
 	sys.settings.stick.enable = false;
 	sys.settings.stick.mode = STICK_MODE_SPLIT_LEFT;
+
+    sys.settings.air.fire_pulse = FIRE_TIME;
+	sys.settings.air.max_pressure = 50;
 }
 
 //################################################################################
@@ -476,14 +539,16 @@ void 	init_system( void )
 
 bool	startup_check( void )
 {
-	return true; // NOTE because we don't have a suicide circuit
-
-	// Soft reset is valid for power on
-	uint32_t reset_reason = nrf_power_resetreas_get();
-	if ( reset_reason & NRF_POWER_RESETREAS_SREQ_MASK )
+	if ( nrf_gpio_pin_read(BUTTON1_IN_PIN) != 0 ) // If button was not source of wakeup, then always wake up
 		return true;
 
-	static uint8_t startup_delay = 10;
+	//// Soft reset is valid for power on
+	//uint32_t reset_reason = nrf_power_resetreas_get();
+	//if ( reset_reason & NRF_POWER_RESETREAS_SREQ_MASK )
+	//	return true;
+
+	// Button woke us up, so check it for long enough hold
+	uint8_t startup_delay = 10;
 	while ( 1 ) {
         vTaskDelay( UI_THREAD_INTERVAL );
 		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
@@ -496,8 +561,6 @@ bool	startup_check( void )
 				return true;
 			}
 		}
-
-		// TODO add logic for other wake up reasons like reset
 
 		if ( startup_delay )
 			startup_delay--;
@@ -525,6 +588,8 @@ static void ui_thread( void * arg )
 
 	if ( !startup_check() )
 		_do_suicide();
+	else
+        sys.status.isOn = true;
 
 	xTimerStart( updateTimer, 0 );
 
@@ -555,21 +620,20 @@ static void ui_thread( void * arg )
 		charger_update( &sys.charger, sys.battery.voltage );
 //		charger_update( &sys.charger, ((float)MapLimit16( sys.io.raw.joy1y, 0, 16383, 3400, 4200))/1000.0f );
 
-#if 0
-		analog_in_update( &sys.io.sticks.joy1x, sys.io.raw.joy1x );
-		analog_in_update( &sys.io.sticks.joy1y, sys.io.raw.joy1y );
-		analog_in_update( &sys.io.sticks.joy2x, sys.io.raw.joy2x );
-		analog_in_update( &sys.io.sticks.joy2y, sys.io.raw.joy2y );
-#else
-#define STICK_MID 8192
-		analog_in_update( &sys.io.sticks.joy1x, STICK_MID );
-		analog_in_update( &sys.io.sticks.joy1y, STICK_MID );
-		analog_in_update( &sys.io.sticks.joy2x, STICK_MID );
-		analog_in_update( &sys.io.sticks.joy2y, STICK_MID );
-#endif
+//#if 0
+//		analog_in_update( &sys.io.sticks.joy1x, sys.io.raw.joy1x );
+//		analog_in_update( &sys.io.sticks.joy1y, sys.io.raw.joy1y );
+//		analog_in_update( &sys.io.sticks.joy2x, sys.io.raw.joy2x );
+//		analog_in_update( &sys.io.sticks.joy2y, sys.io.raw.joy2y );
+//#else
+//#define STICK_MID 8192
+//		analog_in_update( &sys.io.sticks.joy1x, STICK_MID );
+//		analog_in_update( &sys.io.sticks.joy1y, STICK_MID );
+//		analog_in_update( &sys.io.sticks.joy2x, STICK_MID );
+//		analog_in_update( &sys.io.sticks.joy2y, STICK_MID );
+//#endif
 
 		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
-//		ButtonProcess(&button, 0, UI_THREAD_INTERVAL);
 		ButtonProcess(&button2, !nrf_gpio_pin_read(BUTTON2_IN_PIN), UI_THREAD_INTERVAL);
 #if 0
 		ButtonProcess(&buttonJ1B1, !nrf_gpio_pin_read(BUTTON_J1B1_PIN), UI_THREAD_INTERVAL);
@@ -580,6 +644,7 @@ static void ui_thread( void * arg )
 #endif
 
 		psi_update();
+        Relays_Update();
 
 		// TODO do stuff
 //		send_channels();
@@ -722,10 +787,6 @@ void	UI_Init( void )
 	TP1_INIT();
 	nrf_gpio_cfg_input( BUTTON1_IN_PIN, NRF_GPIO_PIN_PULLUP );
 	//nrf_gpio_cfg_input( BUTTON2_IN_PIN, NRF_GPIO_PIN_PULLUP );
-#if 0
-	nrf_gpio_cfg_input( BUTTON_J1B1_PIN, NRF_GPIO_PIN_PULLUP );
-	nrf_gpio_cfg_input( BUTTON_J2B1_PIN, NRF_GPIO_PIN_PULLUP );
-#endif
 
 	Relays_Init();
 
@@ -740,18 +801,12 @@ void	UI_Init( void )
 #endif
 
     LedsInit();
-	RGB_Fader_SetTarget( &rgbFaders[0], RGB_COLOR.MAGENTA, 1000 );
-	RGB_Fader_SetTarget( &rgbFaders[1], RGB_COLOR.MAGENTA, 1000 );
-	RGB_Fader_SetTarget( &rgbFaders[2], RGB_COLOR.MAGENTA, 1000 );
-	RGB_Fader_SetTarget( &rgbFaders[3], RGB_COLOR.MAGENTA, 1000 );
-
+	//RGB_Fader_SetTarget( &rgbFaders[0], RGB_COLOR.MAGENTA, 1000 );
+	//RGB_Fader_SetTarget( &rgbFaders[1], RGB_COLOR.MAGENTA, 1000 );
+	//RGB_Fader_SetTarget( &rgbFaders[2], RGB_COLOR.MAGENTA, 1000 );
+	//RGB_Fader_SetTarget( &rgbFaders[3], RGB_COLOR.MAGENTA, 1000 );
 
 	_adc_init();
-
-	analog_in_init( &sys.io.sticks.joy1x );
-	analog_in_init( &sys.io.sticks.joy1y );
-	analog_in_init( &sys.io.sticks.joy2x );
-	analog_in_init( &sys.io.sticks.joy2y );
 
 	// Create UI thread
 	if ( pdPASS != xTaskCreate(ui_thread, "UI", 256, NULL, 2, &m_ui_thread) ) {

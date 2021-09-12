@@ -100,14 +100,15 @@
 #define AN_PRESSURE_IN			EXT_AN_IN_1
 
 
-//#define RELAY_1_OUT_PIN			19
-//#define RELAY_2_OUT_PIN			17
-//#define RELAY_3_OUT_PIN			29
-//#define RELAY_4_OUT_PIN			27
 #define RELAY_1_OUT_PIN			19
-#define RELAY_2_OUT_PIN			19
-#define RELAY_3_OUT_PIN			19
-#define RELAY_4_OUT_PIN			19
+#define RELAY_2_OUT_PIN			17
+#define RELAY_3_OUT_PIN			29
+#define RELAY_4_OUT_PIN			27
+
+#define RELAY_1_IN_PIN			10
+#define RELAY_2_IN_PIN			11
+#define RELAY_3_IN_PIN			30
+#define RELAY_4_IN_PIN			26
 
 #define LED_DAT_PIN				9
 //#define LED_DUMMY1_PIN			29	// Relay pin
@@ -119,14 +120,17 @@
 //#define LED_DUMMY1_PIN			0xFF
 //#define LED_DUMMY2_PIN			0xFF
 
+#define BEEPER_PIN				21
+#define RELAY_5_OUT_PIN			BEEPER_PIN
+#define RELAY_5_IN_PIN			0xFF
 
 #define TP1_PIN					21
 #define TP1_INIT()	nrf_gpio_cfg_output(TP1_PIN)
-#define TP1_ON()	nrf_gpio_pin_write(TP1_PIN,0)
-#define TP1_OFF()	nrf_gpio_pin_write(TP1_PIN,0)
+//#define TP1_ON()	nrf_gpio_pin_write(TP1_PIN,0)
+//#define TP1_OFF()	nrf_gpio_pin_write(TP1_PIN,0)
 //#define TP1_INIT()
-//#define TP1_ON()
-//#define TP1_OFF()
+#define TP1_ON()
+#define TP1_OFF()
 
 #elif BLE_MODULE == BLE_MODULE_NORDIC_PCA10040
 

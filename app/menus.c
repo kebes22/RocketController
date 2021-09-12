@@ -131,20 +131,11 @@ void Menu_ADC( void )
 	}
 
 	MENU_START( "Raw ADC Values" );
-	//MENU_ITEM( get_adc_Str( "BAT", &sys.io.vBattRaw ), NULL );
-	//MENU_ITEM( get_adc_Str( "J1X", &sys.io.joy1x_raw ), NULL );
-	//MENU_ITEM( get_adc_Str( "J1Y", &sys.io.joy1y_raw ), NULL );
-	//MENU_ITEM( get_adc_Str( "J2X", &sys.io.joy2x_raw ), NULL );
-	//MENU_ITEM( get_adc_Str( "J2Y", &sys.io.joy2y_raw ), NULL );
-	//MENU_ITEM( get_adc_Str( "J1T", &sys.io.joy1trim_raw ), NULL );
-	//MENU_ITEM( get_adc_Str( "J2T", &sys.io.joy2trim_raw ), NULL );
 	MENU_ITEM_TEXT( get_adc_Str( "BAT", &sys.io.raw.vBatt ) );
-	MENU_ITEM_TEXT( get_adc_Str( "J1X", &sys.io.raw.joy1x ) );
-	MENU_ITEM_TEXT( get_adc_Str( "J1Y", &sys.io.raw.joy1y ) );
-	MENU_ITEM_TEXT( get_adc_Str( "J2X", &sys.io.raw.joy2x ) );
-	MENU_ITEM_TEXT( get_adc_Str( "J2Y", &sys.io.raw.joy2y ) );
-	MENU_ITEM_TEXT( get_adc_Str( "J1T", &sys.io.raw.joy1trim ) );
-	MENU_ITEM_TEXT( get_adc_Str( "J2T", &sys.io.raw.joy2trim ) );
+	MENU_ITEM_TEXT( get_adc_Str( "IN1", &sys.analog.an1.raw ) );
+	MENU_ITEM_TEXT( get_adc_Str( "IN2", &sys.analog.an2.raw ) );
+	MENU_ITEM_TEXT( get_adc_Str( "IN3", &sys.analog.an3.raw ) );
+	MENU_ITEM_TEXT( get_adc_Str( "IN4", &sys.analog.an4.raw ) );
 	MENU_END();
 
    	EVENT_BACK_KEY { MenuPop(); }
@@ -217,12 +208,12 @@ void	RootMenu( void )
 //	GroupStartDisconnect();														//	Should always be disconnected in main menu
 
 	MENU_START( PSTR(hdrMain) );
-	MENU_ITEM( PSTR("Sticks"), MenuPush( Menu_IO_Display ) );
-	MENU_ITEM( PSTR("TETRIS"), MenuPush( TetrisMenu ) );
-	MENU_ITEM( PSTR("Battery Game"), MenuPush( BatteryGameMenu ) );
-	MENU_ITEM( PSTR("Battery"), MenuPush( BatteryMenu ) );
-	MENU_ITEM( PSTR("Raw ADC"), MenuPush( Menu_ADC ) );
 	MENU_ITEM( PSTR(hdrSettings), MenuPush( Menu_Settings ) );
+	//MENU_ITEM( PSTR("Sticks"), MenuPush( Menu_IO_Display ) );
+	//MENU_ITEM( PSTR("TETRIS"), MenuPush( TetrisMenu ) );
+	//MENU_ITEM( PSTR("Battery Game"), MenuPush( BatteryGameMenu ) );
+	//MENU_ITEM( PSTR("Battery"), MenuPush( BatteryMenu ) );
+	MENU_ITEM( PSTR("Raw ADC"), MenuPush( Menu_ADC ) );
 	MENU_ITEM( PSTR("Debug"), MenuPush( Menu_Debug ) );
 	MENU_ITEM( PSTR("Test Image 1"), MenuLoadImage( myLIFTER_Splash ) );
 	MENU_ITEM( PSTR("Test Image 2"), MenuLoadImage( Benson_Splash ) );
@@ -368,7 +359,7 @@ void	PSI_Menu( void )
 	EVENT_LOAD_MENU {
 		sys.psi.target = sys.psi.current;
 	}
-	
+
 	EVENT_UPDATE_INTERVAL( 10 ) {
 		SetCurrentUpdate( DRAW_UPDATE_MINOR );
 	}
@@ -418,7 +409,8 @@ void	PSI_Menu( void )
 #endif
 
 	EVENT_BACK_KEY {
-		MenuPop();
+		//MenuPop();
+		MenuPush(RootMenu);
 	}
 
 	EVENT_EXIT_MENU {
@@ -433,7 +425,8 @@ void	MainMenu( void )
 	EVENT_RETURN_TO_MENU { SetCurrentUpdate( DRAW_UPDATE_MAJOR ); }
 
 	if ( lcdCurrentUpdate >= DRAW_UPDATE_MINOR )
-		GLCD_Draw_tImage( &LegoBotSplash, 0, 0, DRAW_ON );
+		GLCD_Draw_tImage( &RocketBotSplash, 0, 0, DRAW_ON );
+		//GLCD_Draw_tImage( &LegoBotSplash, 0, 0, DRAW_ON );
 
 	EVENT_UPDATE_INTERVAL( 200 ) {
 		//MenuPush(ControlMenu);
@@ -448,36 +441,63 @@ char *	GetBattStr( void )
 }
 
 
-void	Menu_Auto_Discharge( void )
+//void	Menu_Auto_Discharge( void )
+//{
+//	MENU_START( PSTR("Batt Auto Discharge") );
+//	MENU_ITEM( GetStrOnOff( PSTR("Enabled"), &sys.settings.auto_discharge.enable ), MenuToggleOnOff( &sys.settings.auto_discharge.enable ) );
+//	if ( sys.settings.auto_discharge.enable ) {
+//		MENU_ITEM( PSTR(" Delay"), MenuLoadSliderI8( "Discharge Delay", " days", &sys.settings.auto_discharge.delay, 1, 7, 1 ) );
+//		MENU_ITEM( PSTR(" Voltage"), MenuLoadSliderI16fp( "Discharge Voltage", "V", &sys.settings.auto_discharge.voltage, 360, 400, 5, 2 ) );
+//	}
+//	MENU_END();
+
+//	EVENT_BACK_KEY { MenuPop(); }
+//}
+
+//################################################################################
+//	Settings menus
+//################################################################################
+void	Menu_Settings_Air( void )
 {
-	MENU_START( PSTR("Batt Auto Discharge") );
-	MENU_ITEM( GetStrOnOff( PSTR("Enabled"), &sys.settings.auto_discharge.enable ), MenuToggleOnOff( &sys.settings.auto_discharge.enable ) );
-	if ( sys.settings.auto_discharge.enable ) {
-		MENU_ITEM( PSTR(" Delay"), MenuLoadSliderI8( "Discharge Delay", " days", &sys.settings.auto_discharge.delay, 1, 7, 1 ) );
-		MENU_ITEM( PSTR(" Voltage"), MenuLoadSliderI16fp( "Discharge Voltage", "V", &sys.settings.auto_discharge.voltage, 360, 400, 5, 2 ) );
+	MENU_START( "Air Settings" );
+	MENU_ITEM( "Fire Pulse Time", MenuLoadSliderI16( "Fire Pulse Time", AIR_FIRE_PULSE_UNIT, &sys.settings.air.fire_pulse, AIR_FIRE_PULSE_MIN, AIR_FIRE_PULSE_MAX, AIR_FIRE_PULSE_INC ) );
+	MENU_ITEM( "Max Pressure", MenuLoadSliderI16( "Max Pressure", AIR_FIRE_PRESSURE_UNIT, &sys.settings.air.max_pressure, AIR_FIRE_PRESSURE_MIN, AIR_FIRE_PRESSURE_MAX, AIR_FIRE_PRESSURE_INC ) );
+	MENU_END();
+	EVENT_BACK_KEY { MenuPop(); }
+}
+
+void	Menu_Settings_Display( void )
+{
+	MENU_START( "Display Settings" );
+	MENU_ITEM( "Contrast", MenuLoadSliderI8( "Contrast", LCD_CONTRAST_UNIT, &sys.settings.display.contrast, LCD_CONTRAST_MIN, LCD_CONTRAST_MAX, LCD_CONTRAST_INC ) );
+	MENU_ITEM( "Brightness", MenuLoadSliderI8( "Brightness", BL_BRIGHT_UNIT, &sys.settings.display.bl_bright, BL_BRIGHT_MIN, BL_BRIGHT_MAX, BL_BRIGHT_INC ) );
+	MENU_ITEM( "Backlight Delay", MenuLoadSliderI8( "Backlight Delay", BL_DELAY_UNIT, &sys.settings.display.bl_delay, BL_DELAY_MIN, BL_DELAY_MAX, BL_DELAY_INC ) );
+	MENU_END();
+	EVENT_BACK_KEY { MenuPop(); }
+}
+
+void	Menu_Settings_Power( void )
+{
+	MENU_START( "Power Settings" );
+	MENU_ITEM( "Activity Timeout", MenuLoadSliderI8( "Activity Timeout", "min", &sys.settings.power.activity_delay, 1, 10, 1 ) );
+	if ( sys.settings.power.auto_discharge.enable ) MENU_LINE(1);
+	MENU_ITEM( GetStrOnOff( "Batt Auto-Discharge", &sys.settings.power.auto_discharge.enable ), MenuToggleOnOff( &sys.settings.power.auto_discharge.enable ) );
+	if ( sys.settings.power.auto_discharge.enable ) {
+		MENU_ITEM( " \x04" "Delay", MenuLoadSliderI8( "Discharge Delay", " days", &sys.settings.power.auto_discharge.delay, 1, 7, 1 ) );
+		MENU_ITEM( " \x04" "Voltage", MenuLoadSliderI16fp( "Discharge Voltage", "V", &sys.settings.power.auto_discharge.voltage, 360, 400, 5, 2 ) );
+		MENU_LINE(1);
 	}
 	MENU_END();
-
 	EVENT_BACK_KEY { MenuPop(); }
 }
 
 void	Menu_Settings( void )
 {
-	MENU_START( PSTR(hdrSettings) );
-	//MENU_ITEM( PSTR(hdrBack), MenuPop() );
-//	MENU_ITEM_BACK();
-	MENU_ITEM( PSTR(hdrContrast), MenuLoadSliderI8( hdrContrast, LCD_CONTRAST_UNIT, &sys.settings.contrast, LCD_CONTRAST_MIN, LCD_CONTRAST_MAX, LCD_CONTRAST_INC ) );
-	MENU_ITEM( PSTR(hdrBrightness), MenuLoadSliderI8( hdrBrightness, BL_BRIGHT_UNIT, &sys.settings.bl_bright, BL_BRIGHT_MIN, BL_BRIGHT_MAX, BL_BRIGHT_INC ) );
-	MENU_ITEM( PSTR(hdrBacklight), MenuLoadSliderI8( hdrBacklight, BL_DELAY_UNIT, &sys.settings.bl_delay, BL_DELAY_MIN, BL_DELAY_MAX, BL_DELAY_INC ) );
+	MENU_START( "Settings" );
+	MENU_ITEM( "Air Settings", MenuPush( Menu_Settings_Air ) );
+	MENU_ITEM( "Display Settings", MenuPush( Menu_Settings_Display ) );
+	MENU_ITEM( "Power Settings", MenuPush( Menu_Settings_Power ) );
 
-//	MENU_ITEM( PSTR("Batt Auto Discharge"), MenuPush( Menu_Auto_Discharge ) );
-	if ( sys.settings.auto_discharge.enable ) MENU_LINE(1);
-	MENU_ITEM( GetStrOnOff( PSTR("Auto-Discharge"), &sys.settings.auto_discharge.enable ), MenuToggleOnOff( &sys.settings.auto_discharge.enable ) );
-	if ( sys.settings.auto_discharge.enable ) {
-		MENU_ITEM( PSTR(" \x04" "Delay"), MenuLoadSliderI8( "Discharge Delay", " days", &sys.settings.auto_discharge.delay, 1, 7, 1 ) );
-		MENU_ITEM( PSTR(" \x04" "Voltage"), MenuLoadSliderI16fp( "Discharge Voltage", "V", &sys.settings.auto_discharge.voltage, 360, 400, 5, 2 ) );
-		MENU_LINE(1);
-	}
 
 	MENU_ITEM( PSTR(hdrAbout), MenuPush(Menu_About); SetNextUpdateOverride(DRAW_UPDATE_MAJOR) );
 	MENU_ITEM( PSTR("Firmware Update"), Menu_Null_Action() );
@@ -486,6 +506,8 @@ void	Menu_Settings( void )
 
 	EVENT_BACK_KEY { MenuPop(); }
 }
+
+
 
 
 void	Menu_About( void )
@@ -598,26 +620,26 @@ void	Menu_IO_Display( void )
 	EVENT_LOAD_MENU {
 		stick_cal = 0;
 	}
-    EVENT_SELECT_KEY {
-		stick_cal = !stick_cal;
-        if ( stick_cal ) {
-			analog_in_start_cal( &sys.io.sticks.joy1x );
-			analog_in_start_cal( &sys.io.sticks.joy1y );
-			analog_in_start_cal( &sys.io.sticks.joy2x );
-			analog_in_start_cal( &sys.io.sticks.joy2y );
-		} else {
-			analog_in_end_cal( &sys.io.sticks.joy1x );
-			analog_in_end_cal( &sys.io.sticks.joy1y );
-			analog_in_end_cal( &sys.io.sticks.joy2x );
-			analog_in_end_cal( &sys.io.sticks.joy2y );
-		}
-	}
+ //   EVENT_SELECT_KEY {
+	//	stick_cal = !stick_cal;
+ //       if ( stick_cal ) {
+	//		analog_in_start_cal( &sys.io.sticks.joy1x );
+	//		analog_in_start_cal( &sys.io.sticks.joy1y );
+	//		analog_in_start_cal( &sys.io.sticks.joy2x );
+	//		analog_in_start_cal( &sys.io.sticks.joy2y );
+	//	} else {
+	//		analog_in_end_cal( &sys.io.sticks.joy1x );
+	//		analog_in_end_cal( &sys.io.sticks.joy1y );
+	//		analog_in_end_cal( &sys.io.sticks.joy2x );
+	//		analog_in_end_cal( &sys.io.sticks.joy2y );
+	//	}
+	//}
 
 	SetCurrentUpdate( DRAW_UPDATE_MAJOR );
 	GLCD_ClearAll();
 	_draw_status_bar();
-	_draw_joystick( 31, 31, 20, 15, sys.io.sticks.joy1x.value, sys.io.sticks.joy1y.value );
-	_draw_joystick( 95, 31, 20, 15, sys.io.sticks.joy2x.value, sys.io.sticks.joy2y.value );
+	//_draw_joystick( 31, 31, 20, 15, sys.io.sticks.joy1x.value, sys.io.sticks.joy1y.value );
+	//_draw_joystick( 95, 31, 20, 15, sys.io.sticks.joy2x.value, sys.io.sticks.joy2y.value );
     if ( stick_cal ) {
 		GLCD_Goto( 64, 56 );
 		GLCD_PutStringAligned( "Calibrating", ALIGN_CENTER );

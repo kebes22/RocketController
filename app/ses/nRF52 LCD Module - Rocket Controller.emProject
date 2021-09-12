@@ -196,11 +196,18 @@
       <folder Name="gfx_resources">
         <file file_name="../gfx_resources/LegoBotSplash.c" />
         <file file_name="../gfx_resources/gfx_resources.h" />
+        <file file_name="../gfx_resources/RocketBotSplash.c" />
       </folder>
       <file file_name="../tetris.c" />
       <file file_name="../tetris.h" />
-      <file file_name="../analog_stick.c" />
-      <file file_name="../analog_stick.h" />
+      <file file_name="../analog_stick.c">
+        <configuration Name="Debug v1.0" build_exclude_from_build="Yes" />
+      </file>
+      <file file_name="../analog_stick.h">
+        <configuration Name="Debug v1.0" build_exclude_from_build="Yes" />
+      </file>
+      <file file_name="../RocketRelay.c" />
+      <file file_name="../RocketRelay.h" />
     </folder>
     <configuration Name="Debug" arm_linker_stack_size="4096" />
     <folder Name="nRF_SoftDevice">
