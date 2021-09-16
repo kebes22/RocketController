@@ -17,6 +17,14 @@
 #include "sdk_common.h"
 #include "nordic_common.h"
 
+#define NRF_LOG_MODULE_NAME central
+#ifdef CENTRAL_LOG_LEVEL
+#define NRF_LOG_LEVEL CENTRAL_LOG_LEVEL
+#else
+#define NRF_LOG_LEVEL 2
+#endif
+#include "log.h"
+
 #include "nrf_ble_scan.h"
 #include "ble_db_discovery.h"
 
@@ -27,11 +35,9 @@
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
 
-
-
 #include "comms.h"
-//#include "ppm_capture.h"
 
+#include "UI.h"
 
 #define APP_BLE_CONN_CFG_TAG 1  /**< Tag that refers to the BLE stack configuration set with @ref sd_ble_cfg_set. The default tag is @ref BLE_CONN_CFG_TAG_DEFAULT. */
 
@@ -43,30 +49,24 @@ TXRX_BLE_CENTRAL_DEF(m_txrx_central);
 
 
 //################################################################################
-//	Test code
+//	Comms handlers
 //################################################################################
 
-//static void test_message( void )
-//{
-//	uint8_t msg[] = { 0xD0, 0x03, 0x00, 0x00, 0xFF };
-////	uint8_t msg[] = { 0xC0, 0x04, 0x00, 0x01, 0x00, 0x00 };
-//
-//    txrx_ble_send( &m_txrx_central, msg, sizeof(msg) );
-//}
+static void _parse_rx_packet( comms_packet_t * packet )
+{
 
+	switch ( packet->hdr.cmd ) {
 
-//void send_channels( void )
-//{
-//	static comms_packet_t packet;
-//	packet.hdr.cmd = CMD_RC_CHANNELS_0;
-//	packet.hdr.len = 16;
-//	uint8_t i = 0;
-//	for ( i=0; i<8; i++ ) {
-//		packet.payload.rc.ch[i] = ppm_samples[i];
-//	}
-//
-//    txrx_ble_send( &m_txrx_central, (uint8_t*)&packet, sizeof(packet.hdr) + packet.hdr.len );
-//}
+		case CMD_BUTTON_STATE:
+			UI_Fire();
+			break;
+
+		case CMD_LAUNCH_DFU:
+			//ui_launch_dfu();
+			break;
+	}
+}
+
 
 void send_channels( uint16_t * channels, uint8_t count )
 {
@@ -302,9 +302,10 @@ void central_on_ble_central_evt(ble_evt_t const *p_ble_evt) {
 			{
 				ble_gattc_evt_hvx_t const * p_evt_hvx = &p_ble_evt->evt.gattc_evt.params.hvx;
 				if (p_evt_hvx->handle == p_txrx->rx_handles.value_handle) {
-//					LOG_TRACE("RX Up %d bytes:", p_evt_hvx->len);
-//					LOG_HEXDUMP_TRACE(p_evt_hvx->data, p_evt_hvx->len);
+					LOG_TRACE("RX Up %d bytes:", p_evt_hvx->len);
+					LOG_HEXDUMP_TRACE(p_evt_hvx->data, p_evt_hvx->len);
 					//FIXME
+					_parse_rx_packet( (comms_packet_t*)p_evt_hvx->data );
 //					_TRIGGER_EVENT(p_txrx, TXRX_EVT_RX_DATA, {
 //						evt.params.rx_data.p_data = (uint8_t*)p_evt_hvx->data;
 //						evt.params.rx_data.length = p_evt_hvx->len;
@@ -446,23 +447,22 @@ static void db_disc_handler(ble_db_discovery_evt_t *p_evt)
 //################################################################################
 
 // register uuid with device discovery db
-static void _central_register(ble_uuid128_t base_uuid, uint8_t dev)
+static void _central_register(ble_uuid128_t dev_uuid)
 {
 	ret_code_t err_code;
 
 	uint8_t uuid_type;
-	base_uuid.uuid128[0] = dev;
-	err_code = sd_ble_uuid_vs_add(&base_uuid, &uuid_type);
+	err_code = sd_ble_uuid_vs_add(&dev_uuid, &uuid_type);
 	if (err_code != NRF_SUCCESS) {
 		NRF_LOG_ERROR(
 			"central_register: vs uuid add error %d; NRF_SDH_BLE_VS_UUID_COUNT might be too small", err_code
 		);
 	}
 
-	ble_uuid_t dev_uuid;
-	dev_uuid.type = uuid_type;
-	dev_uuid.uuid = BLE_UUID_TXRX_SERVICE;
-	err_code = ble_db_discovery_evt_register(&dev_uuid);
+	ble_uuid_t uuid;
+	uuid.type = uuid_type;
+	uuid.uuid = BLE_UUID_TXRX_SERVICE;
+	err_code = ble_db_discovery_evt_register(&uuid);
 	if (err_code != NRF_SUCCESS) {
 		NRF_LOG_ERROR("central_register err %d", err_code);
 	} else {
@@ -482,9 +482,10 @@ void central_init(void)
 
 	scan_init();
 
-// This registers a vendor specific UUID 
-	ble_uuid128_t base_uuid = {UUID_BASE_KSE};
-	_central_register( base_uuid, (uint8_t)DEV_LEGOBOT );
+// This registers a vendor specific UUID
+	ble_uuid128_t uuid = DEVICE_ID_GET(UUID_PARTIAL_KSE, DEV_ROCKET_REM);
+	_central_register( uuid );
+
 
 	ASSERT(NRF_SDH_BLE_CENTRAL_LINK_COUNT > 0);
 	txrx_ble_init( &m_txrx, NULL );

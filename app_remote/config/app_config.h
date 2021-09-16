@@ -8,11 +8,11 @@
 //################################################################################
 //	Device/Version information
 //################################################################################
-#define DEVICE_ID				DEV_LEGOBOT
+#define DEVICE_ID				DEV_ROCKET_REM
 #define PERIPH_POWER_PROFILE	PERIPH_POWER_PROFILE_LOW
 
 #define APP_MAJOR				0			/* Major revision. Major/minor combination must be unique on firmware releases, because these are the only fields returned by the get firmware version command*/
-#define APP_MINOR				15			/* Minor revision. */
+#define APP_MINOR				1			/* Minor revision. */
 #define APP_PATCH				0			/* Patch version. Use this to change file name on server (i.e bad zip file), but indicating no firmware change (rarely used) */
 #define DEV_LABEL				BETA		/* Options are: STABLE, RC, BETA, DEV_BRD */
 #define DEV_LABEL_VER			1			/* STABLE versions should have 0 here */
@@ -27,7 +27,7 @@
 //	Comms info
 //################################################################################
 
-#define APP_MAX_PAYLOAD_SIZE	128
+//#define APP_MAX_PAYLOAD_SIZE	128
 
 //################################################################################
 //	NRF Defines
@@ -36,7 +36,7 @@
 
 // <q> APP_FIFO_ENABLED  - app_fifo - Software FIFO implementation
 
-
+#if 0
 #ifndef APP_FIFO_ENABLED
 #define APP_FIFO_ENABLED 1
 #endif
@@ -52,6 +52,7 @@
 
 #ifndef APP_UART_DRIVER_INSTANCE
 #define APP_UART_DRIVER_INSTANCE 0
+#endif
 #endif
 
 //################################################################################

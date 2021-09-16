@@ -63,6 +63,4 @@ void Hardware_Init( void )
 void Devices_Init( void )
 {
 	NRF_LOG_DEBUG( "Device Initialization" );
-
-    LIS3DH_Init( hardware.drivers.p_twi_0, LIS3DH_ADDR );
 }

@@ -17,6 +17,8 @@ extern "C" {
 typedef enum {
 	CMD_PWR_OFF			= 0xFF,
 
+	CMD_BUTTON_STATE	= 0xB0,
+
 	CMD_RC_CHANNELS_0	= 0xC0,
 	CMD_RC_CHANNELS_1	= 0xC1,
 
@@ -39,6 +41,11 @@ typedef struct {
 //	uint8_t		b;
 //} comms_payload_color_t;
 
+typedef struct {
+	uint8_t		state;
+} comms_payload_button_t;
+
+
 //################################################################################
 //	Comms packet structures
 //################################################################################
@@ -54,6 +61,8 @@ typedef struct {
 		uint8_t						raw[TXRX_COMMS_MAX_DATA];
 		comms_payload_channels_t	rc;
         RGB_Color_t					color;
+
+		comms_payload_button_t		button;
 	} payload;
 } comms_packet_t;
 
@@ -64,6 +73,9 @@ typedef struct {
 //################################################################################
 
 void	comms_init( void );
+
+
+void	comms_send_button( uint8_t state );
 
 
 #ifdef __cplusplus

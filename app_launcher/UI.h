@@ -13,12 +13,12 @@
 extern "C" {
 #endif
 
+#define BUTTON_STARTUP_TIME_MS		500
 #define BUTTON_SUICIDE_TIME			1500
 #define BUTTON_SHORTPRESS_TIME		1000
 
 #define BATTERY_VOLTAGE_MINIMUM	3.3
 
-#define BUTTON_STARTUP_TIME_MS	500
 
 #define BUTTON_SHORT_PRESS		1000
 #define BUTTON_SYNC_DELAY		200
@@ -208,6 +208,8 @@ void UI_on_connect( bool connected );
 
 void Relays_Process( bool fire, bool force );
 void Relays_Off( void );
+
+void UI_Fire( void );
 
 #ifdef __cplusplus
 }

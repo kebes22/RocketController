@@ -2,7 +2,6 @@
 #include "UI.h"
 #include "hl_adc.h"
 
-#include "motor_driver.h"
 #include "Hardware.h"
 
 #define NRF_LOG_MODULE_NAME UI
@@ -33,6 +32,11 @@
 #include "RGB.h"
 #include "RGB_Fader.h"
 
+#include "mcp73833_lipo.h"
+
+#include "comms.h"
+
+
 #define UI_THREAD_INTERVAL		10
 #define COLOR_FADE_TIME			500
 
@@ -49,6 +53,7 @@ static TaskHandle_t m_ui_thread;
 static TimerHandle_t updateTimer;
 
 BUTTON_DEF(button, BUTTON_DEBOUNCE_COUNT);
+BUTTON_DEF(button2, BUTTON_DEBOUNCE_COUNT);
 
 static int16_t repeatDelay	= 0;
 
@@ -56,7 +61,7 @@ static int16_t repeatDelay	= 0;
 //################################################################################
 //	LED strip initialization
 //################################################################################
-#define NUM_LEDS				2
+#define NUM_LEDS				1
 #define LED_UPDATE_INTERVAL		10
 
 
@@ -124,268 +129,6 @@ void RGB_Init( void )
 	}
 }
 
-//################################################################################
-//	Animation
-//################################################################################
-//#define USE_ANIMATION
-
-#ifdef USE_ANIMATION
-#define ANIMATION_QUEUE_SIZE 8
-#define ANIMATION_OVERRIDE_QUEUE_SIZE 4
-
-/**@brief Enumeration of animation types
- * @note Each item must have a corresponding entry in the animationThreadList[]
- */
-typedef enum
-{
-	UIA_STATIC,
-	UIA_BLINK,
-	UIA_SPIN,
-	UIA_BREATHE,
-}	UI_AnimationType_t;
-
-/**@brief Structure containing animation parameters
- * @details This structure should contain a set of parameters in the union for each animation type
- *			Each function implementing an animation should use the parameters in its corresponding entry
- *			to control the behavior of the animation
- */
-typedef struct
-{
-	UI_AnimationType_t		type;
-	union
-	{
-		struct
-		{
-			RGB_Color_t		color;
-			uint16_t		fadeTime;
-			uint16_t		minTime;
-		}	staticParams;
-
-		struct
-		{
-			RGB_Color_t		offColor;
-			RGB_Color_t		onColor;
-			uint16_t		offTime;
-			uint16_t		onTime;
-			uint16_t		fadeTime;
-			uint16_t		minBlinks;
-		}	blinkParams;
-
-		struct
-		{
-			RGB_Color_t		color;
-			uint16_t		speed;
-			uint8_t			minCount;
-		}	spinParams;
-
-		struct
-		{
-			RGB_Color_t		offColor;
-			RGB_Color_t		onColor;
-			uint16_t		fadeTime;
-			uint16_t		restTime;
-			uint16_t		minTime;
-		}	breatheParams;
-	};
-}	UI_Animation_t;
-
-// function and pointer typedefs
-typedef void (AnimationThread_t)( UI_Animation_t const * );
-typedef void (*AnimationThreadPtr_t)( UI_Animation_t const * );
-
-// Function prototypes for animation threads
-static AnimationThread_t AnimationThreadStatic;
-static AnimationThread_t AnimationThreadBlink;
-static AnimationThread_t AnimationThreadSpin;
-static AnimationThread_t AnimationThreadBreathe;
-
-/**@brief List containing function pointers to all
- * @details This structure should contain a set of parameters in the union for each animation type
- *			Each function implementing an animation should use the parameters in its corresponding entry
- *			to control the behavior of the animation
- */
-static const AnimationThreadPtr_t animationThreadList[] = {
-	AnimationThreadStatic,
-	AnimationThreadBlink,
-	AnimationThreadSpin,
-	AnimationThreadBreathe,
-};
-
-
-typedef struct
-{
-	UI_State_t			state;
-	bool				override;
-}	UI_AnimationQueueItem_t;
-
-
-static QueueHandle_t animationQueue;
-static QueueHandle_t animationOverrideQueue;
-
-static UI_State_t baseAnimationState;
-
-static RGB_Color_t ledsMain[4];
-
-#define DEFAULT_SPIN_SPEED	150
-#define DEFAULT_MIN_SPINS	1
-#define DEFAULT_FADE_TIME	400
-#define DEFAULT_MIN_TIME	500
-
-//static const UI_Animation_t	uiIndicator_Boot			= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_BLACK, .onColor.u32=RGB_RED, .offTime=200, .onTime=200, .fadeTime=20, .minBlinks=5 } };
-//static const UI_Animation_t	uiIndicator_Boot			= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_BLACK, .onColor.u32=RGB_YELLOW, .offTime=200, .onTime=200, .fadeTime=20, .minBlinks=3 } };
-
-//static const UI_Animation_t	uiIndicator_Boot			= { .type=UIA_STATIC, .staticParams = { .color.u32=RGB_WHITE, .fadeTime=DEFAULT_FADE_TIME, .minTime=5000 } };
-static const UI_Animation_t uiIndicator_Boot			= { .type=UIA_STATIC, .staticParams = { .color.u32=RGB_YELLOW, .fadeTime=DEFAULT_FADE_TIME, .minTime=1000 } };
-
-static const UI_Animation_t uiIndicator_Provisioning	= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_PURPLE, .speed=DEFAULT_SPIN_SPEED, .minCount=DEFAULT_MIN_SPINS } };
-//static const UI_Animation_t uiIndicator_Provisioning	= { .type=UIA_BREATHE, .breatheParams = { .offColor.u32=RGB_CYAN_DIM, .onColor.u32=RGB_CYAN, .fadeTime=4000, .restTime=0, .minTime=DEFAULT_MIN_TIME } };
-static const UI_Animation_t uiIndicator_ConnectWifi		= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_YELLOW, .speed=DEFAULT_SPIN_SPEED, .minCount=DEFAULT_MIN_SPINS } };
-static const UI_Animation_t uiIndicator_ConnectCloud	= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_GREEN, .speed=DEFAULT_SPIN_SPEED, .minCount=DEFAULT_MIN_SPINS } };
-static const UI_Animation_t uiIndicator_Connected		= { .type=UIA_STATIC, .staticParams = { .color.u32=RGB_YELLOW, .fadeTime=DEFAULT_FADE_TIME, .minTime=0 } };
-
-//static const UI_Animation_t uiIndicator_Good			= { .type=UIA_STATIC, .staticParams.color.u32=RGB_CYAN, .staticParams.fadeTime=DEFAULT_FADE_TIME, .staticParams.minTime=DEFAULT_MIN_TIME };
-//static const UI_Animation_t uiIndicator_Good			= { .type=UIA_BREATHE, .breatheParams = { .offColor.u32=RGB_CYAN_DIM, .onColor.u32=RGB_CYAN, .fadeTime=2000, .restTime=500, .minTime=DEFAULT_MIN_TIME } };
-static const UI_Animation_t uiIndicator_Good			= { .type=UIA_BREATHE, .breatheParams = { .offColor.u32=RGB_CYAN_DIM, .onColor.u32=RGB_CYAN, .fadeTime=4000, .restTime=0, .minTime=DEFAULT_MIN_TIME } };
-static const UI_Animation_t uiIndicator_Busy			= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_CYAN, .speed=DEFAULT_SPIN_SPEED, .minCount=7 } };
-
-static const UI_Animation_t uiIndicator_NoWifi			= { .type=UIA_STATIC, .staticParams = { .color.u32=RGB_RED, .fadeTime=DEFAULT_FADE_TIME, .minTime=DEFAULT_MIN_TIME } };
-static const UI_Animation_t uiIndicator_NoCloud			= { .type=UIA_STATIC, .staticParams = { .color.u32=RGB_YELLOW, .fadeTime=DEFAULT_FADE_TIME, .minTime=DEFAULT_MIN_TIME } };
-static const UI_Animation_t uiIndicator_NoBlind			= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_RED, .speed=DEFAULT_SPIN_SPEED, .minCount=DEFAULT_MIN_SPINS } };
-
-static const UI_Animation_t uiIndicator_Button			= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_WHITE, .speed=100, .minCount=1 } };
-//static const UI_Animation_t uiIndicator_Button			= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_WHITE, .speed=200, .minCount=1 } };
-//static const UI_Animation_t uiIndicator_Button			= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_BLACK, .onColor.u32=RGB_WHITE, .offTime=50, .onTime=200, .fadeTime=50, .minBlinks=1 } };
-
-static const UI_Animation_t uiIndicator_MfgTest			= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_YELLOW, .speed=100, .minCount=1 } };
-static const UI_Animation_t uiIndicator_MfgTestRun		= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_PURPLE, .onColor.u32=RGB_YELLOW, .offTime=200, .onTime=200, .fadeTime=20, .minBlinks=2 } };
-static const UI_Animation_t uiIndicator_MfgTestPass		= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_BLACK, .onColor.u32=RGB_GREEN, .offTime=200, .onTime=200, .fadeTime=20, .minBlinks=8 } };
-static const UI_Animation_t uiIndicator_MfgTestFail		= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_BLACK, .onColor.u32=RGB_RED, .offTime=200, .onTime=200, .fadeTime=20, .minBlinks=8 } };
-static const UI_Animation_t uiIndicator_RTFD			= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_RED, .speed=100, .minCount=1 } };
-static const UI_Animation_t uiIndicator_Identify		= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_BLACK, .onColor.u32=RGB_BLUE, .offTime=300, .onTime=300, .fadeTime=20, .minBlinks=10 } };
-static const UI_Animation_t uiIndicator_BLE_Connected	= { .type=UIA_SPIN, .spinParams = { .color.u32=RGB_BLUE, .speed=DEFAULT_SPIN_SPEED, .minCount=1 } };
-static const UI_Animation_t uiIndicator_BLE_Pairing		= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_BLACK, .onColor.u32=RGB_BLUE, .offTime=480, .onTime=480, .fadeTime=20, .minBlinks=4 } };
-
-static const UI_Animation_t uiIndicator_NoCert		= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_RED, .onColor.u32=RGB_YELLOW, .offTime=350, .onTime=350, .fadeTime=20, .minBlinks=4 } };
-static const UI_Animation_t uiIndicator_NoMfgKey	= { .type=UIA_BLINK, .blinkParams = { .offColor.u32=RGB_RED, .onColor.u32=RGB_BLUE, .offTime=350, .onTime=350, .fadeTime=20, .minBlinks=4 } };
-
-
-static const UI_Animation_t * const animations[] = {
-	NULL,
-
-	&uiIndicator_Boot,
-
-	&uiIndicator_Provisioning,
-	&uiIndicator_ConnectWifi,
-	&uiIndicator_ConnectCloud,
-	&uiIndicator_Connected,
-
-	&uiIndicator_Busy,
-	&uiIndicator_Good,
-
-	&uiIndicator_NoWifi,
-	&uiIndicator_NoCloud,
-	&uiIndicator_NoBlind,
-
-	&uiIndicator_Button,
-	&uiIndicator_MfgTest,
-	&uiIndicator_MfgTestRun,
-	&uiIndicator_MfgTestPass,
-	&uiIndicator_MfgTestFail,
-	&uiIndicator_RTFD,
-	&uiIndicator_Identify,
-	&uiIndicator_BLE_Connected,
-	&uiIndicator_BLE_Pairing,
-
-	&uiIndicator_NoCert,
-	&uiIndicator_NoMfgKey,
-
-};
-
-static UI_State_t animationOverrideState = UI_STATE_NONE;
-static UI_State_t animationCurrentState = UI_STATE_NONE;
-static UI_AnimationQueueItem_t dummyAnimation;
-static bool pairingState = false;
-
-static void UI_SetState_Generic( UI_State_t state, bool override )
-{
-	static UI_State_t lastState = -1;
-//	static uint8_t maxDepth = 0;
-//	uint8_t depth;
-//	if ( !animationQueue ) {
-//		NRF_LOG_ERROR( "!!! Animation queue not initialized !!!" );
-//		return;
-//	}
-	UI_AnimationQueueItem_t qItem = { .state=state, .override=override };
-
-	if ( state != lastState || override ) {									// Make sure it's not a duplicate
-		//	If full, discard oldest items, until space is available
-		bool full;
-		// Loop will make sure any pending tasks (with higher priority) get processed as well, and don't sneak in
-		while ( (full = (uxQueueSpacesAvailable( animationQueue ) < 1)) ) {
-			NRF_LOG_ERROR( "!!! Animation state discarded !!!" );
-			xQueueReceive( animationQueue, &dummyAnimation, 0 );
-		}
-
-		BaseType_t result;
-		if ( override ) {
-			result = xQueueSendToFront( animationQueue, &qItem, 0 );
-		} else {
-			result = xQueueSend( animationQueue, &qItem, 0 );
-		}
-
-		if ( pdFAIL == result ) {
-			NRF_LOG_ERROR( "!!! Animation queue overflow !!!" );
-		}
-//		depth = uxQueueMessagesWaiting( animationQueue );
-//		if ( depth > maxDepth ) {
-//			maxDepth = depth;
-//		}
-	}
-	NRF_LOG_DEBUG( "UI state set to: %d", state);
-	lastState = state;
-}
-
-static bool UI_ProcessOverrideQueue( void )
-{
-	bool override = false;
-	if ( uxQueueMessagesWaiting(animationOverrideQueue) ) {
-		BaseType_t result = xQueuePeek( animationQueue, &dummyAnimation, 0 );
-		if ( !result || !dummyAnimation.override ) { // Nothing pending, or it isn't an override
-			if ( pdPASS == xQueueReceive( animationOverrideQueue, &dummyAnimation, 0 ) ) {
-				override = true;
-				UI_SetState_Generic( dummyAnimation.state, true );
-			}
-		}
-	}
-	return override;
-}
-
-
-//static void UI_SetOverride( UI_State_t state )
-//{
-//	animationOverrideState = state;						// Flag indicating active override state
-//	UI_SetState_Generic( state, true );
-//}
-
-static void UI_SetOverride( UI_State_t state )
-{
-	static UI_State_t lastState = -1;
-	animationOverrideState = state;
-	if ( state != lastState ) { // Make sure it's not a duplicate
-		bool full;
-		// Loop will make sure any pending tasks (with higher priority) get processed as well, and don't sneak in
-		while ( (full = (uxQueueSpacesAvailable( animationOverrideQueue ) < 1)) ) {
-			NRF_LOG_ERROR( "!!! Override state discarded !!!" );
-			xQueueReceive( animationOverrideQueue, &dummyAnimation, 0 );
-		}
-
-		UI_AnimationQueueItem_t qItem = { .state=state, .override=true };
-		xQueueSend( animationOverrideQueue, &qItem, 0 );
-	}
-	UI_ProcessOverrideQueue(); // Check if it can be moved to main queue
-}
-
-#endif // USE_ANIMATION
 
 //################################################################################
 //	Button processing code
@@ -395,6 +138,7 @@ static void UI_SetOverride( UI_State_t state )
 //################################################################################
 //	Charger
 //################################################################################
+#if 0
 /*	Charger state table from datasheet
 	----------------------------------------
 	Charge Cycle State	STAT1	STAT2	PG
@@ -492,7 +236,7 @@ void charger_init( void )
 	nrf_gpio_cfg_input( CHG_STAT1_PIN, NRF_GPIO_PIN_PULLUP );
 	nrf_gpio_cfg_input( CHG_STAT2_PIN, NRF_GPIO_PIN_PULLUP );
 }
-
+#endif
 
 //################################################################################
 //	ADC Handling
@@ -511,7 +255,6 @@ static void _check_battery_voltage( void )
 #ifndef DEV_BOARD
 	if ( vBatt < BATTERY_VOLTAGE_MINIMUM ) {
 		leds.p_leds[0] = RGB_COLOR.RED;
-		leds.p_leds[1] = RGB_COLOR.RED;
 		vTaskDelay( 500 );
 		_do_suicide();
 	}
@@ -522,7 +265,7 @@ static void _adc_done_cb( void )
 {
 	vBatt = (float)vBattRaw / AN_COUNTS_PER_V;
 
-	_check_battery_voltage();
+	//_check_battery_voltage();
 
 	hl_adc_sleep();
 	xSemaphoreGive( adc_semaphore );
@@ -541,7 +284,7 @@ static void _adc_init( void )
 	hl_adc_channel_register( &adc_channel_config_voltage, &vBattRaw, NULL );
 
 	hl_adc_init( &saadc_config, _adc_done_cb );
-	
+
 	adc_semaphore = xSemaphoreCreateBinary();
 }
 
@@ -565,24 +308,47 @@ typedef struct
 	bool			connected;	//TODO add connected logic
 
 	RGB_Color_t		radioColor;
-	int16_t			motorChannels[2];
 
 	RGB_Color_t		outputColor;
 
 	uint16_t		rxCount;
 	uint32_t		offCount;
+
+	mcp73833_t	charger;
+
 }	ui_status_t;
 
 ui_status_t ui_status = {0};
 
 void	StateControl( void )
 {
+	RGB_Color_t const * charger_color = NULL;
+	switch ( ui_status.charger.chargeState ) {
+		case CHG_SHUTDOWN:
+//			charger_color = NULL;
+			break;
+
+		case CHG_CHARGING:
+			charger_color = &RGB_COLOR.YELLOW;
+			break;
+
+		case CHG_CHARGED:
+			charger_color = &RGB_COLOR.GREEN;
+			break;
+
+		case CHG_FAULT:
+			charger_color = &RGB_COLOR.RED;
+			break;
+	}
+
 	ui_status.allowRun = false;
 	RGB_Color_t newColor = { 0, 0, 0 };
 // Process states
 	// Charging has highest priority, and blocks all other states
-	if ( charger.chargeState != CHG_SHUTDOWN ) {
-        newColor = charger.ledColor;
+
+// TODO update these states for remote
+	if ( charger_color ) {
+        newColor = *charger_color;
         ui_status.offCount = 0;
 	} else if ( !ui_status.connected ) {
 		newColor = disconnectedColor;
@@ -593,16 +359,14 @@ void	StateControl( void )
 
 // Process motor outputs
 	if ( !ui_status.allowRun ) {
-		ui_status.motorChannels[0] = 0;
-		ui_status.motorChannels[1] = 0;
+		//ui_status.motorChannels[0] = 0;
+		//ui_status.motorChannels[1] = 0;
 	}
-	motor_run( ui_status.motorChannels[0], ui_status.motorChannels[1] );
 
 // Set LEDs
 	if ( 0 != memcmp( &newColor, &ui_status.outputColor, sizeof(newColor) ) ) {
 		ui_status.outputColor = newColor;
 		RGB_Fader_SetTarget( &rgbFaders[0], ui_status.outputColor, COLOR_FADE_TIME );
-		RGB_Fader_SetTarget( &rgbFaders[1], ui_status.outputColor, COLOR_FADE_TIME );
 	}
 }
 
@@ -614,11 +378,13 @@ static void _update_timer_handler( TimerHandle_t xTimer )
 	NRF_LOG_DEBUG( LOG_COLOR_MAGENTA "Batt: Raw: %d, " NRF_LOG_FLOAT_MARKER "V (RX: %d)" , vBattRaw, NRF_LOG_FLOAT(vBatt), ui_status.rxCount );
 	if ( !ui_status.rxCount ) {
 		// TODO error
-		ui_status.motorChannels[0] = 0;
-		ui_status.motorChannels[1] = 0;
+		//ui_status.motorChannels[0] = 0;
+		//ui_status.motorChannels[1] = 0;
+#ifndef NEVER_SLEEP
 		ui_status.offCount += UI_UPDATE_INTERVAL_MS;
 		if ( ui_status.offCount > UI_IDLE_OFF_DELAY_MS )
 			_do_suicide();
+#endif
 	} else {
 		ui_status.offCount = 0;
 	}
@@ -635,8 +401,8 @@ void	ui_set_color( RGB_Color_t color )
 
 void ui_set_motors( int16_t m1, int16_t m2 )
 {
-	ui_status.motorChannels[0] = m1;
-	ui_status.motorChannels[1] = m2;
+	//ui_status.motorChannels[0] = m1;
+	//ui_status.motorChannels[1] = m2;
     ui_status.rxCount++;
 }
 
@@ -648,7 +414,6 @@ void	ui_update_connection( bool state )
 void	ui_launch_dfu( void )
 {
 	leds.p_leds[0] = RGB_COLOR.RED;
-	leds.p_leds[1] = RGB_COLOR.GREEN;
 	vTaskDelay( 500 );
 	dfu_launch();
 }
@@ -671,23 +436,59 @@ static void ReportMAC( void )
 
 static void _do_suicide( void )
 {
-	if ( charger.isBusy )
+	if ( ui_status.charger.isBusy )
 		return;
 
+	NRF_LOG_INFO( "Shutting Down" );
 	leds.p_leds[0] = RGB_COLOR.BLACK;
-	leds.p_leds[1] = RGB_COLOR.BLACK;
 	vTaskDelay(50);
 	nrf_gpio_pin_write( EN_5V_PIN, 0 );	// Turn off leds
 	suicide();
 }
-
 
 static void _startup_voltage_check( void )
 {
 	_adc_sample_and_wait();	// Take a sample to trigger check
 }
 
+//################################################################################
+//	Startup check
+//################################################################################
 
+static bool	_startup_check( void )
+{
+	if ( nrf_gpio_pin_read(BUTTON1_IN_PIN) != 0 ) // If button was not source of wakeup, then always wake up
+		return true;
+
+	bool startup = false;
+
+	// Button woke us up, so check it for long enough hold
+	uint8_t startup_delay = 10;
+	while ( 1 ) {
+        vTaskDelay( UI_THREAD_INTERVAL );
+		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
+		FaderProcess( UI_THREAD_INTERVAL );
+
+		if ( !startup_delay ) {
+			if ( !button.on ) {
+				//return false;
+				// TODO temporary to allow infinite on hold
+				return startup? true: false;
+			}
+			if ( button.onTime > BUTTON_STARTUP_TIME_MS ) {
+				startup = true;
+			}
+		}
+
+		if ( startup_delay )
+			startup_delay--;
+
+		ButtonClearEvents( &button );
+	}
+}
+
+// TODO add back button launch of DFU
+#if 0
 static void _startup_button_check( void )
 {
 	uint8_t dfuCount = 0;
@@ -711,6 +512,7 @@ static void _startup_button_check( void )
 			break;
 	}
 }
+#endif
 
 //################################################################################
 //	RTOS Threads / Init
@@ -727,11 +529,16 @@ static void ui_thread( void * arg )
 
 	ReportMAC();
 
-	vTaskDelay( 50 );
-	Devices_Init();  // Initializes flash memory.
+	// Process button startup check immediately
+	bool startup = _startup_check();
 
+	// Wait a little, then check voltage
+	vTaskDelay( 50 );
 	_startup_voltage_check();
-	_startup_button_check();
+	if ( !startup )
+		_do_suicide();
+
+	Devices_Init();  // Initializes flash memory.
 
 	advertising_start(BLE_ADV_MODE_FAST);
 
@@ -743,17 +550,32 @@ static void ui_thread( void * arg )
         vTaskDelay( xFrequency );
 #endif
 		_adc_sample_and_wait();
-		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON_IN_PIN), UI_THREAD_INTERVAL);
+		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
+		ButtonProcess(&button2, !nrf_gpio_pin_read(BUTTON2_IN_PIN), UI_THREAD_INTERVAL);
 		FaderProcess( UI_THREAD_INTERVAL );
 
-		charger_update();
+		charger_update( &ui_status.charger, vBatt );
 		StateControl();
+
+#if 0
+		if ( button.onEvent ) {
+			comms_send_button( 1 );
+		}
+#else
+		if ( button2.onEvent ) {
+			comms_send_button( 1 );
+		}
+#endif
 
 		if ( button.onTime > BUTTON_SUICIDE_TIME ) {
 			_do_suicide();
 		}
+		//if ( button2.onTime > BUTTON_SUICIDE_TIME ) {
+		//	_do_suicide();
+		//}
 
 		ButtonClearEvents( &button );
+		ButtonClearEvents( &button2 );
 	}
 }
 
@@ -762,7 +584,8 @@ static void ui_thread( void * arg )
 
 void	UI_Init( void )
 {
-	nrf_gpio_cfg_input( BUTTON_IN_PIN, NRF_GPIO_PIN_PULLUP );
+	nrf_gpio_cfg_input( BUTTON1_IN_PIN, NRF_GPIO_PIN_PULLUP );
+	nrf_gpio_cfg_input( BUTTON2_IN_PIN, NRF_GPIO_PIN_PULLUP );
 
 	nrf_gpio_cfg_output( EN_5V_PIN );
 	nrf_gpio_pin_write( EN_5V_PIN, 1 );
@@ -777,19 +600,18 @@ void	UI_Init( void )
 		APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
 	}
     xTimerStart( updateTimer, 0 );
-    
+
 	LedsInit();
 	_adc_init();
 
 	RGB_Init();
 
-//	leds.p_leds[0] = disconnectedColor;
-//	leds.p_leds[1] = disconnectedColor;
-//	leds.p_leds[0] = RGB_COLOR.MAGENTA;
-//	leds.p_leds[1] = RGB_COLOR.MAGENTA;
 	RGB_Fader_SetTarget( &rgbFaders[0], RGB_COLOR.MAGENTA, 100 );
-	RGB_Fader_SetTarget( &rgbFaders[1], RGB_COLOR.MAGENTA, 100 );
-	
-	charger_init();
-	motor_init();
+
+	mcp73833_config_t chargerConfig = {
+		.stat1_pin	= CHG_STAT1_PIN,
+		.stat2_pin	= CHG_STAT2_PIN,
+		.pg_pin		= CHG_PG_PIN
+	};
+	charger_init( &ui_status.charger, &chargerConfig );
 }

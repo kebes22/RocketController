@@ -6,6 +6,7 @@
 //################################################################################
 //	Debugging options
 //################################################################################
+#define NEVER_SLEEP
 
 
 //################################################################################
@@ -31,9 +32,9 @@
 
 #define	ADVERT_LOG_LEVEL					3
 
-#define UI_LOG_LEVEL						4
+#define UI_LOG_LEVEL						3
 #define LIS3DH_LOG_LEVEL					3
-#define TXRX_COMMS_LOG_LEVEL				3
+#define TXRX_COMMS_LOG_LEVEL				4
 
 
 

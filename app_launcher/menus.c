@@ -358,6 +358,7 @@ void	PSI_Menu( void )
 {
 	EVENT_LOAD_MENU {
 		sys.psi.target = sys.psi.current;
+		Relays_Off();
 	}
 
 	EVENT_UPDATE_INTERVAL( 10 ) {

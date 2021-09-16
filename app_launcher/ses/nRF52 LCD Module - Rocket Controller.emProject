@@ -1,9 +1,6 @@
 <!DOCTYPE CrossStudio_Project_File>
-<solution
-  Name="nRF52 LCD Module - Rocket Controller"
-  target="8"
-  version="2">
-  <project Name="nRF52 LCD Module - Rocket Controller">
+<solution Name="Rocket Controller" target="8" version="2">
+  <project Name="Rocket Controller">
     <configuration
       Name="Common"
       arm_architecture="v7EM"
@@ -179,9 +176,7 @@
       <file file_name="../myLIFTER_Splash.c" />
       <file file_name="../Debounce.c" />
       <file file_name="../Debounce.h" />
-      <file file_name="../mcp73833_lipo.c" />
       <file file_name="../fonts.c" />
-      <file file_name="../mcp73833_lipo.h" />
       <file file_name="../menus.c" />
       <file file_name="../menus.h" />
       <file file_name="../st7565P_nrf_gfx.c" />
@@ -230,9 +225,11 @@
         <file file_name="$(LIB_PATH)/drivers/RGB.h" />
         <file file_name="$(LIB_PATH)/drivers/suicide_pin.c" />
         <file file_name="$(LIB_PATH)/drivers/suicide_pin.h" />
-        <file file_name="../../lib/drivers/hl_adc.c" />
-        <file file_name="../../lib/drivers/hl_adc.h" />
-        <file file_name="../../lib/drivers/RGB_Fader.c" />
+        <file file_name="$(LIB_PATH)/drivers/hl_adc.c" />
+        <file file_name="$(LIB_PATH)/drivers/hl_adc.h" />
+        <file file_name="$(LIB_PATH)/drivers/RGB_Fader.c" />
+        <file file_name="$(LIB_PATH)/drivers/mcp73833_lipo.c" />
+        <file file_name="$(LIB_PATH)/drivers/mcp73833_lipo.h" />
       </folder>
       <folder Name="core">
         <file file_name="$(LIB_PATH)/core/lib_core.c" />
@@ -247,10 +244,10 @@
         <file file_name="$(LIB_PATH)/txrx/txrx_common.h" />
       </folder>
       <folder Name="graphics">
-        <file file_name="../../lib/graphics/lcd_image_converter/tLCD.c" />
-        <file file_name="../../lib/graphics/lcd_image_converter/tLCD.h" />
+        <file file_name="$(LIB_PATH)/graphics/lcd_image_converter/tLCD.c" />
+        <file file_name="$(LIB_PATH)/graphics/lcd_image_converter/tLCD.h" />
         <folder Name="fonts">
-          <file file_name="../../lib/graphics/lcd_image_converter/fonts/ArialBlack36.c" />
+          <file file_name="$(LIB_PATH)/graphics/lcd_image_converter/fonts/ArialBlack36.c" />
         </folder>
       </folder>
     </folder>

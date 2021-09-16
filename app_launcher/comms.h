@@ -17,10 +17,14 @@ extern "C" {
 typedef enum {
 	CMD_PWR_OFF			= 0xFF,
 
+	CMD_BUTTON_STATE	= 0xB0,
+
 	CMD_RC_CHANNELS_0	= 0xC0,
 	CMD_RC_CHANNELS_1	= 0xC1,
 
 	CMD_SET_COLOR		= 0xD0,
+
+	CMD_LAUNCH_DFU		= 0xDF,
 } comms_cmd_t;
 
 //################################################################################

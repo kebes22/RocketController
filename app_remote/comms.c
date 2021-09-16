@@ -1,5 +1,4 @@
 #include "comms.h"
-#include "motor_driver.h"
 #include "UI.h"
 
 #define NRF_LOG_MODULE_NAME txrx
@@ -16,12 +15,18 @@
 
 TXRX_BLE_DEF(txrx);
 
+static bool comms_send( comms_packet_t *p_pkt )
+{
+	txrx_ble_send( &txrx, p_pkt, (sizeof(p_pkt->hdr) + p_pkt->hdr.len) );
+}
+
+
 //################################################################################
 //	Comms packet parsing
 //################################################################################
 static void _parse_rx_packet( comms_packet_t * packet )
 {
-	
+
 	switch ( packet->hdr.cmd ) {
 
 //		case CMD_RC_CHANNELS_0:
@@ -49,6 +54,19 @@ static void _parse_rx_packet( comms_packet_t * packet )
 			break;
 	}
 }
+
+
+void	comms_send_button( uint8_t state )
+{
+	comms_packet_t pkt;
+	pkt.hdr.cmd = CMD_BUTTON_STATE;
+	pkt.hdr.len = sizeof(pkt.payload.button);
+
+	pkt.payload.button.state = state;
+
+	comms_send( &pkt );
+}
+
 
 //################################################################################
 //	Event handling

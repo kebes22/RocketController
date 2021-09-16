@@ -349,10 +349,15 @@ void psi_update( void )
 }
 
 
+static bool ext_fire = false;
+
 void Relays_Process( bool fire, bool forcce )
 {
 	static int delay = 0;
     static bool old_fire = 0, old_busy = false;
+
+	fire = fire | ext_fire;
+	ext_fire = false;
 
 	psi_update();
 
@@ -404,6 +409,8 @@ void Relays_Init( void )
 	RELAY_INIT(4);
 	RELAY_INIT(5);	// Beeper
 
+	ext_fire = false;
+
 	//RocketRelay_Config_t config1 = {
 	//	uint8_t		outPin;
 	//	uint8_t		inPin;
@@ -432,6 +439,13 @@ void Relays_Update( void )
 	RELAY_UPDATE(4);
 	RELAY_UPDATE(5);
 }
+
+// TODO somewhat hacky
+void UI_Fire( void )
+{
+	ext_fire = true;
+}
+
 
 //################################################################################
 //	Utilities
@@ -541,11 +555,6 @@ bool	startup_check( void )
 {
 	if ( nrf_gpio_pin_read(BUTTON1_IN_PIN) != 0 ) // If button was not source of wakeup, then always wake up
 		return true;
-
-	//// Soft reset is valid for power on
-	//uint32_t reset_reason = nrf_power_resetreas_get();
-	//if ( reset_reason & NRF_POWER_RESETREAS_SREQ_MASK )
-	//	return true;
 
 	// Button woke us up, so check it for long enough hold
 	uint8_t startup_delay = 10;
@@ -707,6 +716,7 @@ static void ppm_handler(ppm_capture_evt_t * p_evt)
 
 static void _tx_timer_handler( TimerHandle_t xTimer )
 {
+#if 0
 	uint16_t channels[2];
     int16_t x;
     int16_t y;
@@ -753,6 +763,7 @@ static void _tx_timer_handler( TimerHandle_t xTimer )
 	}
 
 	send_channels( &channels, 2 );
+#endif
 }
 
 //################################################################################
@@ -813,6 +824,7 @@ void	UI_Init( void )
 		APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
 	}
 
+	// TODO fix timer stuff
 	updateTimer = xTimerCreate( "TXTMR", 20, pdTRUE, NULL, _tx_timer_handler );
 	if ( updateTimer == NULL ) {
 		APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);

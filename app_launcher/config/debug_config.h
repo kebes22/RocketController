@@ -24,7 +24,7 @@
 #define NRF_LOG_STACK_SIZE					256
 
 // NOTE this is the maximal allowed log level, _not_ the default
-#define NRF_LOG_DEFAULT_LEVEL				4
+#define NRF_LOG_DEFAULT_LEVEL				5
 
 
 #define NRF_SDH_BLE_LOG_ENABLED				1
@@ -33,6 +33,7 @@
 
 #define UI_LOG_LEVEL						4
 #define PPM_LOG_LEVEL						3
+#define CENTRAL_LOG_LEVEL					5
 //
 //#define SPI_FLASH_LOG_LEVEL					3
 //#define FDS_API_LOG_LEVEL					3

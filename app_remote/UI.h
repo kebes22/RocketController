@@ -10,7 +10,8 @@
 extern "C" {
 #endif
 
-#define BUTTON_SUICIDE_TIME		1500
+#define BUTTON_STARTUP_TIME_MS		500
+#define BUTTON_SUICIDE_TIME			1500
 #define BUTTON_DFU_COUNT		5
 
 #define UI_UPDATE_INTERVAL_MS	500
