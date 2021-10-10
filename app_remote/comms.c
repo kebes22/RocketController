@@ -17,7 +17,7 @@ TXRX_BLE_DEF(txrx);
 
 static bool comms_send( comms_packet_t *p_pkt )
 {
-	txrx_ble_send( &txrx, p_pkt, (sizeof(p_pkt->hdr) + p_pkt->hdr.len) );
+	txrx_ble_send( &txrx, (uint8_t *)p_pkt, (sizeof(p_pkt->hdr) + p_pkt->hdr.len) );
 }
 
 

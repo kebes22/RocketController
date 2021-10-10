@@ -22,6 +22,9 @@
 
 #define I2C_SCL_PIN				28		// I2C clock pin
 #define I2C_SDA_PIN				27		// I2C data pin.
+// FIXME dummy pins
+//#define I2C_SCL_PIN				6		// I2C clock pin
+//#define I2C_SDA_PIN				7		// I2C data pin.
 
 #define CHG_PG_PIN				3
 #define CHG_STAT1_PIN			26

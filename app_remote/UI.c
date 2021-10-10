@@ -36,6 +36,8 @@
 
 #include "comms.h"
 
+#include "GLCD.h"
+extern const nrf_lcd_t nrf_lcd_ssd1306;
 
 #define UI_THREAD_INTERVAL		10
 #define COLOR_FADE_TIME			500
@@ -52,7 +54,7 @@ static void _do_suicide( void );
 static TaskHandle_t m_ui_thread;
 static TimerHandle_t updateTimer;
 
-BUTTON_DEF(button, BUTTON_DEBOUNCE_COUNT);
+BUTTON_DEF(button1, BUTTON_DEBOUNCE_COUNT);
 BUTTON_DEF(button2, BUTTON_DEBOUNCE_COUNT);
 
 static int16_t repeatDelay	= 0;
@@ -466,16 +468,16 @@ static bool	_startup_check( void )
 	uint8_t startup_delay = 10;
 	while ( 1 ) {
         vTaskDelay( UI_THREAD_INTERVAL );
-		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
+		ButtonProcess(&button1, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
 		FaderProcess( UI_THREAD_INTERVAL );
 
 		if ( !startup_delay ) {
-			if ( !button.on ) {
+			if ( !button1.on ) {
 				//return false;
 				// TODO temporary to allow infinite on hold
 				return startup? true: false;
 			}
-			if ( button.onTime > BUTTON_STARTUP_TIME_MS ) {
+			if ( button1.onTime > BUTTON_STARTUP_TIME_MS ) {
 				startup = true;
 			}
 		}
@@ -483,7 +485,7 @@ static bool	_startup_check( void )
 		if ( startup_delay )
 			startup_delay--;
 
-		ButtonClearEvents( &button );
+		ButtonClearEvents( &button1 );
 	}
 }
 
@@ -540,6 +542,8 @@ static void ui_thread( void * arg )
 
 	Devices_Init();  // Initializes flash memory.
 
+	GLCD_Init( &nrf_lcd_ssd1306, NRF_LCD_ROTATE_0 );
+
 	advertising_start(BLE_ADV_MODE_FAST);
 
 	while ( 1 )
@@ -550,7 +554,7 @@ static void ui_thread( void * arg )
         vTaskDelay( xFrequency );
 #endif
 		_adc_sample_and_wait();
-		ButtonProcess(&button, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
+		ButtonProcess(&button1, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
 		ButtonProcess(&button2, !nrf_gpio_pin_read(BUTTON2_IN_PIN), UI_THREAD_INTERVAL);
 		FaderProcess( UI_THREAD_INTERVAL );
 
@@ -558,7 +562,7 @@ static void ui_thread( void * arg )
 		StateControl();
 
 #if 0
-		if ( button.onEvent ) {
+		if ( button1.onEvent ) {
 			comms_send_button( 1 );
 		}
 #else
@@ -567,14 +571,11 @@ static void ui_thread( void * arg )
 		}
 #endif
 
-		if ( button.onTime > BUTTON_SUICIDE_TIME ) {
+		if ( button1.onTime > BUTTON_SUICIDE_TIME ) {
 			_do_suicide();
 		}
-		//if ( button2.onTime > BUTTON_SUICIDE_TIME ) {
-		//	_do_suicide();
-		//}
 
-		ButtonClearEvents( &button );
+		ButtonClearEvents( &button1 );
 		ButtonClearEvents( &button2 );
 	}
 }
@@ -614,4 +615,5 @@ void	UI_Init( void )
 		.pg_pin		= CHG_PG_PIN
 	};
 	charger_init( &ui_status.charger, &chargerConfig );
+
 }

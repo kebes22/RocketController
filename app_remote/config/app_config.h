@@ -24,10 +24,29 @@
 #define COMMS_PROTOCOL_MINOR	0			/* Minor versions do not affect app comms interface significantly */
 
 //################################################################################
-//	Comms info
+//	GFX defines
 //################################################################################
 
-//#define APP_MAX_PAYLOAD_SIZE	128
+#define NRF_GFX_ENABLED			1
+
+#define SSD1306_ENABLED			1
+
+#define SSD1306_SCL_PIN			I2C_SCL_PIN
+#define SSD1306_SDA_PIN			I2C_SDA_PIN
+
+#define SSD1306_TWI_INSTANCE	1
+#define TWI1_ENABLED			1
+#define TWI1_USE_EASY_DMA		1
+#define TWIM1_ENABLED			1
+//#define TWI1_USE_EASY_DMA		0
+//#define TWIM1_ENABLED			0
+
+//#define SSD1306_TWI_INSTANCE	0
+//#define TWI0_ENABLED			1
+//#define TWI0_USE_EASY_DMA		0
+//#define TWIM_ENABLED			0
+//#define TWIM0_ENABLED			0
+//#define NRF_TWI_MNGR_ENABLED	0
 
 //################################################################################
 //	NRF Defines
