@@ -260,10 +260,12 @@ void	MenuReset( void )
 //	Base menu routines
 //########################################################################################################################
 bool	menuInit = false;
+extern const nrf_lcd_t nrf_lcd_st7565;
 
 void	MenuInit( void )
 {
-	GLCD_Init();
+
+	GLCD_Init( &nrf_lcd_st7565, NRF_LCD_ROTATE_180 );
 
 	gPopup_Create( &menuFrame, GLCD_WIDTH, GLCD_HEIGHT );						//	Create main frame
 	gFrame_SetBorder( &menuFrame.outer, 0, 0 );									//	No border
@@ -325,8 +327,8 @@ static bool _processKeys( Menu_KeyBits_t keyBits )
 		SetNextUpdate( DRAW_UPDATE_MINOR );
 	}
 
-    selected1_dir = selected1 > old1? 1: selected1 < old1? -1: 0; 
-    selected2_dir = selected2 > old2? 1: selected2 < old2? -1: 0; 
+    selected1_dir = selected1 > old1? 1: selected1 < old1? -1: 0;
+    selected2_dir = selected2 > old2? 1: selected2 < old2? -1: 0;
 }
 
 static void _clearKeyEvents( void )
