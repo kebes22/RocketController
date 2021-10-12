@@ -140,7 +140,10 @@
       <file file_name="../Hardware.h" />
       <file file_name="../comms.c" />
       <file file_name="../comms.h" />
-      <file file_name="../SSD1306_nrf_gfx.c" />
+      <file file_name="../SSD1306_nrf_gfx.c">
+        <configuration Name="Debug v1.0" build_exclude_from_build="Yes" />
+      </file>
+      <file file_name="../SSD1306_nrf_gfx2.c" />
     </folder>
     <configuration Name="Debug" arm_linker_stack_size="4096" />
     <folder Name="nRF_SoftDevice">

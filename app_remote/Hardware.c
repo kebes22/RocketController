@@ -19,6 +19,7 @@ Hardware_t hardware;
 //################################################################################
 //	TWI/I2C Manager
 //################################################################################
+#if 1
 #define TWI_INSTANCE_ID_0	0			/* Hardware ID for this TWI instance. Also shared with SPI, so they must be unique */
 #define TWI_QUEUE_LENGTH_0	5			/* Queue size for TWI transactions. May need more if this TWI is shared on multiple threads. */
 
@@ -42,6 +43,9 @@ static void TWI_0_Init(void)
 	hardware.drivers.p_twi_0 = &app_twi_0;
 	NRF_LOG_DEBUG("TWI0 initialized.");
 }
+#else
+static void TWI_0_Init(void) {}
+#endif
 
 //################################################################################
 //	Devices
