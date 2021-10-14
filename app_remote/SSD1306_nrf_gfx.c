@@ -16,8 +16,6 @@
 #include "semphr.h"
 
 
-#define USE_ISR
-
 #define SSD1306_TWI_ADDR	(0x3C)
 
 #define SSD1306_WIDTH		128
@@ -58,28 +56,20 @@ _bufferCursor_t m_cursor;
 
 typedef struct
 {
-	uint8_t display_buf[SSD1306_ROWS * SSD1306_WIDTH];	// Each byte is 8 vertical pixels
-	uint8_t dirty_flags[DIRTY_Y_SEGMENTS];				// Each 8 rows x
+	uint8_t display_buf[SSD1306_ROWS][SSD1306_WIDTH+1];	// Each byte is 8 vertical pixels
+	//uint8_t dirty_flags[DIRTY_Y_SEGMENTS];				// Each 8 rows x
+
+	// TODO add flags/state tracking for update/brightness/etc.
+	volatile bool	runUpdate;
+	volatile bool	twi_is_busy;
+
 }	ssd1306_t;
 
 static ssd1306_t m_ssd1306;
 
-
-#ifdef USE_ISR
-static volatile bool m_runUpdate = false;
-static volatile bool m_twi_is_busy = false;
-#endif
-
-
-// TODO move external to allow sharing? Would also need to use spi manager lib with queue.
-//static const nrf_drv_spi_t spi = NRF_DRV_SPI_INSTANCE(SSD1306_TWI_INSTANCE);  /**< SPI instance. */
-
-//static const nrf_drv_twi_t twi_inst = NRF_DRV_TWI_INSTANCE(SSD1306_TWI_INSTANCE);  /**< SPI instance. */
-
 //################################################################################
 //	Command list
 //################################################################################
-
 #define CONT							0x80
 #define CONT_DATA						0x40
 
@@ -104,6 +94,9 @@ static volatile bool m_twi_is_busy = false;
 
 #define SSD1306_CMD_NOP					CONT, (0xE3)
 
+//################################################################################
+//	Init/uninit commands
+//################################################################################
 static uint8_t init_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
 	SSD1306_CMD_CLK_DIV(8,0),
@@ -123,6 +116,13 @@ static uint8_t init_commands[] = {
 
 static uint8_t uninit_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
+};
+
+static uint8_t display_commands[] = {
+	SSD1306_CMD_ADDR_MODE(0),		// Continuous horizontal addressing with wrap
+	SSD1306_CMD_SET_PAGE(0),		// Row 0
+	SSD1306_CMD_COL_UPPER(0),		// Col 0
+	SSD1306_CMD_COL_LOWER(0),		// Col 0
 };
 
 //################################################################################
@@ -192,16 +192,15 @@ static ret_code_t _i2c_write( uint8_t* p_data, uint16_t len, bool is_data, bool 
 	ret_code_t error = _guard_start();
 	if ( error ) return error;
 
-	uint8_t addr = SSD1306_TWI_ADDR;
 	uint8_t control[] = { CONT_DATA };
 	nrf_twi_mngr_transfer_t const cmd_transfers[] =
 	{
-		NRF_TWI_MNGR_WRITE(addr, p_data, len, false),
+		NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, p_data, len, false),
 	};
 	nrf_twi_mngr_transfer_t const data_transfers[] =
 	{
-		NRF_TWI_MNGR_WRITE(addr, control, 1, NRF_TWI_MNGR_NO_STOP),
-		NRF_TWI_MNGR_WRITE(addr, p_data, len, 0),
+		NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, control, 1, NRF_TWI_MNGR_NO_STOP),
+		NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, p_data, len, 0),
 	};
 	nrf_twi_mngr_transaction_t const transaction =
 	{
@@ -221,63 +220,94 @@ static ret_code_t _i2c_write( uint8_t* p_data, uint16_t len, bool is_data, bool 
 	return error;
 }
 
+//################################################################################
+//	Display update code
+//################################################################################
+typedef enum {
+	UPDATE_PHASE_COMMAND,
+	UPDATE_PHASE_DATA,
+} m_update_phase_t;
 
-//static inline void twi_wait( void )
-//{
-//	//while ( m_twi_is_busy );
-//}
+// State machine run from the twi callback (isr)
+static void _display_isr_state_machine(ret_code_t result, void * p_user_data)
+{
+	// Static update parameters
+	static m_update_phase_t phase = UPDATE_PHASE_COMMAND;
+	static uint8_t row = 0;
 
-//----------------------------------------
-// Non-Blocking transfers for update process
-//----------------------------------------
-//static inline ret_code_t write_commands_start( uint8_t * p_cmd, uint16_t len )
-//{
-//	ret_code_t err_code = NRF_SUCCESS;
-//	m_twi_is_busy = true;
-//#if 0
-//	nrf_drv_twi_xfer_desc_t const xfer = {
-//		.type				= NRF_DRV_TWI_XFER_TX,
-//		.address			= SSD1306_TWI_ADDR,
-//		.primary_length		= len,
-//		.secondary_length	= 0,
-//		.p_primary_buf		= p_cmd,
-//		.p_secondary_buf	= NULL,
-//	};
-//	err_code = nrf_drv_twi_xfer( &twi_inst, &xfer, 0 );
-//#else
-//	err_code = nrf_drv_twi_tx( &twi_inst, SSD1306_TWI_ADDR, p_cmd, len, 0 );
-//#endif
-//	return err_code;
-//}
+	bool repeat = false;
+	do {
+		// Check for update flag, and start process
+		if ( phase == UPDATE_PHASE_COMMAND && m_ssd1306.runUpdate ) {
+			// Send command list to prepare for data
+			m_ssd1306.runUpdate = false;
+			row = 0;
+			static nrf_twi_mngr_transfer_t const commands_transfers[] =
+			{
+				NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, display_commands, sizeof(display_commands), 0),
+			};
+			static nrf_twi_mngr_transaction_t const commands_transaction =
+			{
+				.callback				= _display_isr_state_machine,
+				.p_user_data			= NULL,
+				.p_transfers			= commands_transfers,
+				.number_of_transfers	= ARRAY_SIZE(commands_transfers)
+			};
+			nrf_twi_mngr_schedule(hardware.drivers.p_twi_0, &commands_transaction);
+			phase = UPDATE_PHASE_DATA;
+			return;
+		} else if ( phase == UPDATE_PHASE_DATA ) {
+			if ( row < SSD1306_ROWS ) {
+				static nrf_twi_mngr_transfer_t display_transfers[] =
+				{
+					NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, m_ssd1306.display_buf[0], sizeof(m_ssd1306.display_buf[0]), 0),
+				};
+				display_transfers[0].p_data = m_ssd1306.display_buf[row++]; // Update pointer based on row
+				display_transfers[0].p_data[0] = CONT_DATA;					// Make sure it is flagged as data
+				static nrf_twi_mngr_transaction_t const display_transaction =
+				{
+					.callback				= _display_isr_state_machine,
+					.p_user_data			= NULL,
+					.p_transfers			= display_transfers,
+					.number_of_transfers	= ARRAY_SIZE(display_transfers)
+				};
+				nrf_twi_mngr_schedule(hardware.drivers.p_twi_0, &display_transaction);
+				return;
+			} else { // Done with rows
+				phase = UPDATE_PHASE_DATA;
+				if ( m_ssd1306.runUpdate )
+					repeat = true;
+				else
+					m_ssd1306.twi_is_busy = false;
+			}
+		}
 
-//static inline ret_code_t write_data_start( uint8_t * p_data, uint16_t len )
-//{
-//	ret_code_t err_code = NRF_SUCCESS;
-//#ifdef USE_ISR
-//	m_twi_is_busy = true;
-//#endif
-//	uint8_t control[] = { CONT_DATA };
-//	nrf_drv_twi_xfer_desc_t const xfer = {
-//		.type				= NRF_DRV_TWI_XFER_TXTX,
-//		.address			= SSD1306_TWI_ADDR,
-//		.primary_length		= sizeof(control),
-//		.secondary_length	= len,
-//		.p_primary_buf		= control,
-//		.p_secondary_buf	= p_data,
-//	};
-//	err_code = nrf_drv_twi_xfer( &twi_inst, &xfer, 0 );
-//	return err_code;
-//}
+	} while ( repeat );
+}
 
-//static inline ret_code_t twi_kickstart ( void )
-//{
-//	ret_code_t err_code = NRF_SUCCESS;
-//	// Kickstart SPI if not already running
-//	static uint8_t dummy[] = { SSD1306_CMD_NOP };
-//	if ( !m_twi_is_busy )
-//		err_code = write_commands_start( dummy, sizeof(dummy) );
-//	return err_code;
-//}
+// Kickstart transfer using NOP if not already running a transfer
+static void twi_kickstart( void )
+{
+	if ( m_ssd1306.twi_is_busy )
+		return;
+
+	m_ssd1306.twi_is_busy = true;
+	static uint8_t commands[] = {
+		SSD1306_CMD_NOP,
+	};
+	static nrf_twi_mngr_transfer_t const transfers[] =
+	{
+		NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, commands, sizeof(commands), 0),
+	};
+	static nrf_twi_mngr_transaction_t const transaction =
+	{
+		.callback				= _display_isr_state_machine,
+		.p_user_data			= NULL,
+		.p_transfers			= transfers,
+		.number_of_transfers	= ARRAY_SIZE(transfers)
+	};
+	nrf_twi_mngr_schedule(hardware.drivers.p_twi_0, &transaction);
+}
 
 //----------------------------------------
 // Blocking transfers for normal use
@@ -288,10 +318,10 @@ static inline ret_code_t write_commands_blocking( uint8_t * p_data, uint16_t len
 	return _i2c_write( p_data, len, false, true );
 }
 
-static inline ret_code_t write_data_blocking( uint8_t * p_data, uint16_t len )
-{
-	return _i2c_write( p_data, len, true, true );
-}
+//static inline ret_code_t write_data_blocking( uint8_t * p_data, uint16_t len )
+//{
+//	return _i2c_write( p_data, len, true, true );
+//}
 
 
 //################################################################################
@@ -327,12 +357,12 @@ static void _rotate( int16_t *x, int16_t *y )
 	}
 }
 
-static void * 	_SetBufferCursor( uint16_t x, uint16_t y/*, drawMode_t mode*/ )
+static void * 	_SetBufferCursor( uint16_t x, uint16_t y )
 {
 	m_cursor.page = (y>>3);
 	m_cursor.offset = (y&0x07);
 	m_cursor.col = x;
-	m_cursor.p_buf = &m_ssd1306.display_buf[x + (m_cursor.page*SSD1306_WIDTH)];
+	m_cursor.p_buf = &m_ssd1306.display_buf[m_cursor.page][x+1]; // +1 is for I2C cotrol byte at beginning of each page
 }
 
 void	_WriteRaw( uint8_t mask, drawMode_t mode )
@@ -353,7 +383,7 @@ void	_WriteRaw( uint8_t mask, drawMode_t mode )
 	}
 	*m_cursor.p_buf++ = data;
 	//TODO dirty flags are broken
-	m_ssd1306.dirty_flags[m_cursor.page] |= 1<<(m_cursor.col/DIRTY_X_SEGMENTS);	// Set dirty flag
+	//m_ssd1306.dirty_flags[m_cursor.page] |= 1<<(m_cursor.col/DIRTY_X_SEGMENTS);	// Set dirty flag
 	m_cursor.col++;
 }
 
@@ -436,63 +466,12 @@ static void _ssd1306_rect_draw(uint16_t x, uint16_t y, uint16_t width, uint16_t 
 	}
 }
 
-
-#ifndef USE_ISR
-static void _set_address( uint8_t row, uint8_t col )
-{
-	uint8_t commands[] = {
-		SSD1306_CMD_SET_PAGE(row),
-		SSD1306_CMD_SET_COL_LOW(0),
-		SSD1306_CMD_SET_COL_HIGH(0),
-	};
-	write_command_list( commands, sizeof(commands) );
-}
-#endif
-
 static void _ssd1306_display(void)
 {
-#ifdef USE_ISR
 	CRITICAL_REGION_ENTER();
-		m_runUpdate = true;
-		//twi_kickstart();
-		// FIXME
+		m_ssd1306.runUpdate = true;
+		twi_kickstart();
 	CRITICAL_REGION_EXIT();
-#elif 1
-// NOTE currently, blasting the whole screen out is faster than updating only the changed parts
-// this could be changed to use dirty flags per row, instead of multiple per row
-	uint8_t * ptr = m_ssd1306.display_buf;
-	for ( uint8_t row = 0; row < SSD1306_ROWS; row++ ) {
-		_set_address( row, 0 );
-        write_data( ptr, SSD1306_COLS );
-		ptr += SSD1306_COLS;
-	}
-#else
-	// Iterate dirty flags and send only modified blocks
-	uint8_t * ptr = m_ssd1306.display_buf;
-	for ( uint16_t row = 0; row < DIRTY_Y_SEGMENTS; row++ ) {
-		uint8_t flags = m_ssd1306.dirty_flags[row];
-		m_ssd1306.dirty_flags[row] = 0;
-		uint8_t colMask = 1;
-		write_command( SSD1306_CMD_SET_PAGE(row) );
-		for ( uint16_t col = 0; col < SSD1306_WIDTH; col += DIRTY_X_SEGMENTS ) {
-			if ( flags & colMask ) {
-				write_command( SSD1306_CMD_SET_COL_LOW(col) );
-				write_command( SSD1306_CMD_SET_COL_HIGH(col>>4) );
-#if 0
-				uint8_t count = DIRTY_X_SEGMENTS;
-				while ( count-- )
-					write_data( *ptr++ );
-#else
-				write_data_len( ptr, DIRTY_X_SEGMENTS );
-				ptr += DIRTY_X_SEGMENTS;
-#endif
-			} else {
-				ptr += DIRTY_X_SEGMENTS;
-			}
-			colMask <<= 1;
-		}
-	}
-#endif
 }
 
 static void _ssd1306_rotation_set(nrf_lcd_rotation_t rotation)
@@ -502,98 +481,24 @@ static void _ssd1306_rotation_set(nrf_lcd_rotation_t rotation)
 
 static void _ssd1306_display_invert(bool invert)
 {
-	uint8_t cmd[] = { SSD1306_CMD_INVERT(invert) };
-	if ( !m_twi_is_busy )
-		write_commands_blocking( cmd, sizeof(cmd) );
+	// FIXME
+	//uint8_t cmd[] = { SSD1306_CMD_INVERT(invert) };
+	//if ( !m_twi_is_busy )
+	//	write_commands_blocking( cmd, sizeof(cmd) );
 }
 
 //################################################################################
-//	Initialization & ISR handler
+//	Initialization
 //################################################################################
 
-//static ret_code_t _init_commands(void)
-//{
-//	// Initialization commands
-//	return write_commands_blocking( init_commands, sizeof(init_commands) );
-
-//	// Clear screen and start first update to LCD
-////	_ssd1306_rect_draw( 0, 0, SSD1306_WIDTH, SSD1306_HEIGHT, 0 );
-////	_ssd1306_display();
-//}
-
-//static ret_code_t _uninit_commands(void)
-//{
-//}
-
-//#ifdef USE_ISR
-//typedef enum {
-//	UPDATE_PHASE_IDLE,
-//	UPDATE_PHASE_COMMAND,
-//	UPDATE_PHASE_DATA,
-//} m_update_phase_t;
-
-//static void _twi_handler( nrf_drv_twi_evt_t const * p_event, void * p_context )
-//{
-//// Static update parameters
-//	static m_update_phase_t phase = UPDATE_PHASE_IDLE;
-//	static uint8_t row = 0;
-//	static uint8_t * ptr = NULL;
-//	static uint8_t commands[] = {
-//		SSD1306_CMD_SET_PAGE(0),
-//		SSD1306_CMD_COL_LOWER(0),
-//		SSD1306_CMD_COL_UPPER(0),
-//	};
-
-//	bool repeat = false;
-//	do {
-//		// Process start of update
-//		if ( phase == UPDATE_PHASE_IDLE && m_runUpdate ) {
-//			row = 0;
-//			ptr = m_ssd1306.display_buf;
-//			m_runUpdate = false;
-//			phase = UPDATE_PHASE_COMMAND;
-//		}
-
-//		// Process update
-//		if ( phase == UPDATE_PHASE_COMMAND ) {
-//			commands[3] = row;
-//			write_commands_start( commands, sizeof(commands) );
-//			phase = UPDATE_PHASE_DATA;
-//		} else if ( phase == UPDATE_PHASE_DATA ) {
-//			write_data_start( ptr, SSD1306_COLS );
-//			ptr += SSD1306_COLS;
-//			if ( ++row >= SSD1306_ROWS ) {
-//				// Update done, exit
-//				phase = UPDATE_PHASE_IDLE;
-//			} else {
-//				phase = UPDATE_PHASE_COMMAND;
-//			}
-//		}
-
-//		if ( phase == UPDATE_PHASE_IDLE ) {
-//			// Clear busy flag to notify anything blocking
-//			m_twi_is_busy = false;
-//			// Check if update went pending while already updating
-//			if ( m_runUpdate )
-//				repeat = true;
-//		}
-//	} while ( repeat );
-//}
-//#endif
-
-//static ret_code_t hardware_init(void)
-//{
-//	ret_code_t err_code;
-
-//	nrf_drv_twi_config_t twi_config = NRF_DRV_TWI_DEFAULT_CONFIG;
-//	twi_config.scl = SSD1306_SCL_PIN;
-//	twi_config.sda = SSD1306_SDA_PIN;
-
-//	err_code = nrf_drv_twi_init( &twi_inst, &twi_config, _twi_handler, NULL );
-//	//err_code = nrf_drv_twi_init( &twi_inst, &twi_config, NULL, NULL );
-
-//	return err_code;
-//}
+static void _load_pattern( void )
+{
+	uint8_t val = 0;
+	for ( int r=0; r<SSD1306_ROWS; r++ ) {
+		for ( int c=0; c<SSD1306_COLS; c++ )
+			m_ssd1306.display_buf[r][c+1] = val++;
+	}
+}
 
 static ret_code_t _ssd1306_init(void)
 {
@@ -602,10 +507,12 @@ static ret_code_t _ssd1306_init(void)
 	if ( !m_twi_mutex )
 		m_twi_mutex = xSemaphoreCreateMutex();
 
-	//return _init_commands();
-	return write_commands_blocking( init_commands, sizeof(init_commands) );
-
-	//return err_code;
+	ret_code_t error = write_commands_blocking( init_commands, sizeof(init_commands) );
+	if ( !error ) {
+		_load_pattern();
+		_ssd1306_display();
+	}
+	return error;
 }
 
 static void _ssd1306_uninit(void)
