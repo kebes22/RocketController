@@ -104,7 +104,6 @@ static volatile bool m_twi_is_busy = false;
 
 #define SSD1306_CMD_NOP					CONT, (0xE3)
 
-#if 1
 static uint8_t init_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
 	SSD1306_CMD_CLK_DIV(8,0),
@@ -121,11 +120,10 @@ static uint8_t init_commands[] = {
 	SSD1306_CMD_ALL_ON(0),
 	SSD1306_CMD_DISP_ON(1),
 };
-#else
-static uint8_t init_commands[] = {
+
+static uint8_t uninit_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
 };
-#endif
 
 //################################################################################
 //	TWI interface
@@ -513,16 +511,19 @@ static void _ssd1306_display_invert(bool invert)
 //	Initialization & ISR handler
 //################################################################################
 
-static ret_code_t _init_commands(void)
-{
-	// Initialization commands
-	return write_commands_blocking( init_commands, sizeof(init_commands) );
+//static ret_code_t _init_commands(void)
+//{
+//	// Initialization commands
+//	return write_commands_blocking( init_commands, sizeof(init_commands) );
 
-	// Clear screen and start first update to LCD
-//	_ssd1306_rect_draw( 0, 0, SSD1306_WIDTH, SSD1306_HEIGHT, 0 );
-//	_ssd1306_display();
-}
+//	// Clear screen and start first update to LCD
+////	_ssd1306_rect_draw( 0, 0, SSD1306_WIDTH, SSD1306_HEIGHT, 0 );
+////	_ssd1306_display();
+//}
 
+//static ret_code_t _uninit_commands(void)
+//{
+//}
 
 //#ifdef USE_ISR
 //typedef enum {
@@ -596,23 +597,20 @@ static ret_code_t _init_commands(void)
 
 static ret_code_t _ssd1306_init(void)
 {
-	//ret_code_t err_code = hardware_init();
-	//if (err_code != NRF_SUCCESS) {
-	//	return err_code;
-	//}
 	if ( !m_twi_semaphore )
 		m_twi_semaphore = xSemaphoreCreateBinary();
 	if ( !m_twi_mutex )
 		m_twi_mutex = xSemaphoreCreateMutex();
 
-	return _init_commands();
+	//return _init_commands();
+	return write_commands_blocking( init_commands, sizeof(init_commands) );
 
 	//return err_code;
 }
 
 static void _ssd1306_uninit(void)
 {
-	//nrf_drv_twi_uninit(&twi_inst);
+	write_commands_blocking( init_commands, sizeof(uninit_commands) );
 }
 
 //################################################################################

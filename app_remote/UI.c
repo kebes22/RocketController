@@ -443,6 +443,7 @@ static void _do_suicide( void )
 
 	NRF_LOG_INFO( "Shutting Down" );
 	leds.p_leds[0] = RGB_COLOR.BLACK;
+	nrf_gfx_uninit( &nrf_lcd_ssd1306 );
 	vTaskDelay(50);
 	nrf_gpio_pin_write( EN_5V_PIN, 0 );	// Turn off leds
 	suicide();
@@ -478,7 +479,8 @@ static bool	_startup_check( void )
 				return startup? true: false;
 			}
 			if ( button1.onTime > BUTTON_STARTUP_TIME_MS ) {
-				startup = true;
+				//startup = true;
+				return true;
 			}
 		}
 
@@ -486,6 +488,17 @@ static bool	_startup_check( void )
 			startup_delay--;
 
 		ButtonClearEvents( &button1 );
+	}
+}
+
+static void _startup_button_wait( void )
+{
+	while ( 1 ) {
+        vTaskDelay( UI_THREAD_INTERVAL );
+		ButtonProcess(&button1, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
+		FaderProcess( UI_THREAD_INTERVAL );
+		if ( !button1.on )
+			return;
 	}
 }
 
@@ -541,8 +554,9 @@ static void ui_thread( void * arg )
 		_do_suicide();
 
 	Devices_Init();  // Initializes flash memory.
-
 	GLCD_Init( &nrf_lcd_ssd1306, NRF_LCD_ROTATE_0 );
+
+	_startup_button_wait();
 
 	advertising_start(BLE_ADV_MODE_FAST);
 
