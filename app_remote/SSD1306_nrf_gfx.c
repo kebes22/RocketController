@@ -1,4 +1,5 @@
 #include "sdk_common.h"
+#include "Hardware.h"
 
 #if NRF_MODULE_ENABLED(SSD1306)
 
@@ -7,7 +8,13 @@
 #include "nrf_delay.h"
 #include "nrf_gpio.h"
 
-#include "nrf_drv_twi.h"
+//#include "nrf_drv_twi.h"
+#include "nrf_twi_mngr.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
 
 #define USE_ISR
 
@@ -67,7 +74,7 @@ static volatile bool m_twi_is_busy = false;
 // TODO move external to allow sharing? Would also need to use spi manager lib with queue.
 //static const nrf_drv_spi_t spi = NRF_DRV_SPI_INSTANCE(SSD1306_TWI_INSTANCE);  /**< SPI instance. */
 
-static const nrf_drv_twi_t twi_inst = NRF_DRV_TWI_INSTANCE(SSD1306_TWI_INSTANCE);  /**< SPI instance. */
+//static const nrf_drv_twi_t twi_inst = NRF_DRV_TWI_INSTANCE(SSD1306_TWI_INSTANCE);  /**< SPI instance. */
 
 //################################################################################
 //	Command list
@@ -97,7 +104,6 @@ static const nrf_drv_twi_t twi_inst = NRF_DRV_TWI_INSTANCE(SSD1306_TWI_INSTANCE)
 
 #define SSD1306_CMD_NOP					CONT, (0xE3)
 
-#if 1
 static uint8_t init_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
 	SSD1306_CMD_CLK_DIV(8,0),
@@ -114,73 +120,164 @@ static uint8_t init_commands[] = {
 	SSD1306_CMD_ALL_ON(0),
 	SSD1306_CMD_DISP_ON(1),
 };
-#else
-static uint8_t init_commands[] = {
+
+static uint8_t uninit_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
 };
-#endif
 
 //################################################################################
 //	TWI interface
 //################################################################################
-static inline void twi_wait( void )
+static SemaphoreHandle_t	m_twi_semaphore = NULL;
+static SemaphoreHandle_t	m_twi_mutex = NULL;
+static volatile ret_code_t	m_twi_result = 0;
+
+#define COMMS_TIMEOUT 100
+
+/**
+ * @brief Callback for I2C writes
+ *
+ * This function is called from interrupt level.
+ */
+static void twi_cb(ret_code_t result, void * p_user_data)
 {
-	//while ( m_twi_is_busy );
+	//if (result != NRF_SUCCESS) {
+	//	NRF_LOG_ERROR("LSM303AGR TWI Error: %d", (int)result);
+	//}
+	m_twi_result = result;
+	BaseType_t yield_req = pdFALSE;
+	UNUSED_VARIABLE(xSemaphoreGiveFromISR(m_twi_semaphore, &yield_req));
+	portYIELD_FROM_ISR(yield_req);
 }
+
+// Take back semaphore if last transaction timed out.
+static void _transaction_clear( void )
+{
+//	Try to take semaphore, in case given late from last transaction
+	UNUSED_RETURN_VALUE( xSemaphoreTake( m_twi_semaphore, 0 ) );
+}
+
+// Wait for TWI transaction to complete.
+static ret_code_t _transaction_wait( const nrf_twi_mngr_t* p_twi )
+{
+	//	Wait for completion
+	if ( pdFALSE == xSemaphoreTake( m_twi_semaphore, COMMS_TIMEOUT ) ) {
+//		NRF_LOG_ERROR("LSM303AGR TWI driver timeout" );
+		//uint8_t trash[p_twi->p_queue->element_size];
+//		nrf_queue_pop(p_twi->p_queue, trash);
+		m_twi_result = NRF_ERROR_IO_PENDING;
+	}
+	return m_twi_result;
+}
+
+static ret_code_t _guard_start( void )
+{
+	if ( pdFALSE == xSemaphoreTake( m_twi_mutex, COMMS_TIMEOUT ) ) {
+		return NRF_ERROR_BUSY;
+	}
+	return NRF_SUCCESS;
+}
+
+static void _guard_end( void )
+{
+	xSemaphoreGive( m_twi_mutex );
+}
+
+//################################################################################
+//	Write functions
+//################################################################################
+
+static ret_code_t _i2c_write( uint8_t* p_data, uint16_t len, bool is_data, bool wait )
+{
+	ret_code_t error = _guard_start();
+	if ( error ) return error;
+
+	uint8_t addr = SSD1306_TWI_ADDR;
+	uint8_t control[] = { CONT_DATA };
+	nrf_twi_mngr_transfer_t const cmd_transfers[] =
+	{
+		NRF_TWI_MNGR_WRITE(addr, p_data, len, false),
+	};
+	nrf_twi_mngr_transfer_t const data_transfers[] =
+	{
+		NRF_TWI_MNGR_WRITE(addr, control, 1, NRF_TWI_MNGR_NO_STOP),
+		NRF_TWI_MNGR_WRITE(addr, p_data, len, 0),
+	};
+	nrf_twi_mngr_transaction_t const transaction =
+	{
+		.callback				= twi_cb,
+		.p_user_data			= NULL,
+		.p_transfers			= is_data? data_transfers: cmd_transfers,
+		.number_of_transfers	= is_data? 2: 1,
+	};
+	_transaction_clear();
+	error = nrf_twi_mngr_schedule(hardware.drivers.p_twi_0, &transaction);
+	APP_ERROR_CHECK(error);
+	error = _transaction_wait(hardware.drivers.p_twi_0);
+	//if(error){
+	//	NRF_LOG_ERROR("%s LSM303AGR TWI driver timeout on reg 0x%02x", (uint32_t)__func__, reg );}
+
+	_guard_end();
+	return error;
+}
+
+
+//static inline void twi_wait( void )
+//{
+//	//while ( m_twi_is_busy );
+//}
 
 //----------------------------------------
 // Non-Blocking transfers for update process
 //----------------------------------------
-static inline ret_code_t write_commands_start( uint8_t * p_cmd, uint16_t len )
-{
-	ret_code_t err_code = NRF_SUCCESS;
-#ifdef USE_ISR
-	m_twi_is_busy = true;
-#endif
-#if 0
-	nrf_drv_twi_xfer_desc_t const xfer = {
-		.type				= NRF_DRV_TWI_XFER_TX,
-		.address			= SSD1306_TWI_ADDR,
-		.primary_length		= len,
-		.secondary_length	= 0,
-		.p_primary_buf		= p_cmd,
-		.p_secondary_buf	= NULL,
-	};
-	err_code = nrf_drv_twi_xfer( &twi_inst, &xfer, 0 );
-#else
-	err_code = nrf_drv_twi_tx( &twi_inst, SSD1306_TWI_ADDR, p_cmd, len, 0 );
-#endif
-	return err_code;
-}
+//static inline ret_code_t write_commands_start( uint8_t * p_cmd, uint16_t len )
+//{
+//	ret_code_t err_code = NRF_SUCCESS;
+//	m_twi_is_busy = true;
+//#if 0
+//	nrf_drv_twi_xfer_desc_t const xfer = {
+//		.type				= NRF_DRV_TWI_XFER_TX,
+//		.address			= SSD1306_TWI_ADDR,
+//		.primary_length		= len,
+//		.secondary_length	= 0,
+//		.p_primary_buf		= p_cmd,
+//		.p_secondary_buf	= NULL,
+//	};
+//	err_code = nrf_drv_twi_xfer( &twi_inst, &xfer, 0 );
+//#else
+//	err_code = nrf_drv_twi_tx( &twi_inst, SSD1306_TWI_ADDR, p_cmd, len, 0 );
+//#endif
+//	return err_code;
+//}
 
-static inline ret_code_t write_data_start( uint8_t * p_data, uint16_t len )
-{
-	ret_code_t err_code = NRF_SUCCESS;
-#ifdef USE_ISR
-	m_twi_is_busy = true;
-#endif
-	uint8_t control[] = { CONT_DATA };
-	nrf_drv_twi_xfer_desc_t const xfer = {
-		.type				= NRF_DRV_TWI_XFER_TXTX,
-		.address			= SSD1306_TWI_ADDR,
-		.primary_length		= sizeof(control),
-		.secondary_length	= len,
-		.p_primary_buf		= control,
-		.p_secondary_buf	= p_data,
-	};
-	err_code = nrf_drv_twi_xfer( &twi_inst, &xfer, 0 );
-	return err_code;
-}
+//static inline ret_code_t write_data_start( uint8_t * p_data, uint16_t len )
+//{
+//	ret_code_t err_code = NRF_SUCCESS;
+//#ifdef USE_ISR
+//	m_twi_is_busy = true;
+//#endif
+//	uint8_t control[] = { CONT_DATA };
+//	nrf_drv_twi_xfer_desc_t const xfer = {
+//		.type				= NRF_DRV_TWI_XFER_TXTX,
+//		.address			= SSD1306_TWI_ADDR,
+//		.primary_length		= sizeof(control),
+//		.secondary_length	= len,
+//		.p_primary_buf		= control,
+//		.p_secondary_buf	= p_data,
+//	};
+//	err_code = nrf_drv_twi_xfer( &twi_inst, &xfer, 0 );
+//	return err_code;
+//}
 
-static inline ret_code_t twi_kickstart ( void )
-{
-	ret_code_t err_code = NRF_SUCCESS;
-	// Kickstart SPI if not already running
-	static uint8_t dummy[] = { SSD1306_CMD_NOP };
-	if ( !m_twi_is_busy )
-		err_code = write_commands_start( dummy, sizeof(dummy) );
-	return err_code;
-}
+//static inline ret_code_t twi_kickstart ( void )
+//{
+//	ret_code_t err_code = NRF_SUCCESS;
+//	// Kickstart SPI if not already running
+//	static uint8_t dummy[] = { SSD1306_CMD_NOP };
+//	if ( !m_twi_is_busy )
+//		err_code = write_commands_start( dummy, sizeof(dummy) );
+//	return err_code;
+//}
 
 //----------------------------------------
 // Blocking transfers for normal use
@@ -188,21 +285,14 @@ static inline ret_code_t twi_kickstart ( void )
 
 static inline ret_code_t write_commands_blocking( uint8_t * p_data, uint16_t len )
 {
-	ret_code_t err_code = NRF_SUCCESS;
-	twi_wait();
-	write_commands_start( p_data, len );
-	twi_wait();
-	return err_code;
+	return _i2c_write( p_data, len, false, true );
 }
 
 static inline ret_code_t write_data_blocking( uint8_t * p_data, uint16_t len )
 {
-	ret_code_t err_code = NRF_SUCCESS;
-	twi_wait();
-	write_data_start( p_data, len );
-	twi_wait();
-	return err_code;
+	return _i2c_write( p_data, len, true, true );
 }
+
 
 //################################################################################
 //	Utils
@@ -364,7 +454,8 @@ static void _ssd1306_display(void)
 #ifdef USE_ISR
 	CRITICAL_REGION_ENTER();
 		m_runUpdate = true;
-		twi_kickstart();
+		//twi_kickstart();
+		// FIXME
 	CRITICAL_REGION_EXIT();
 #elif 1
 // NOTE currently, blasting the whole screen out is faster than updating only the changed parts
@@ -420,102 +511,106 @@ static void _ssd1306_display_invert(bool invert)
 //	Initialization & ISR handler
 //################################################################################
 
-static void _init_commands(void)
-{
-	// Initialization commands
-	write_commands_blocking( init_commands, sizeof(init_commands) );
+//static ret_code_t _init_commands(void)
+//{
+//	// Initialization commands
+//	return write_commands_blocking( init_commands, sizeof(init_commands) );
 
-	// Clear screen and start first update to LCD
-//	_ssd1306_rect_draw( 0, 0, SSD1306_WIDTH, SSD1306_HEIGHT, 0 );
-//	_ssd1306_display();
-}
+//	// Clear screen and start first update to LCD
+////	_ssd1306_rect_draw( 0, 0, SSD1306_WIDTH, SSD1306_HEIGHT, 0 );
+////	_ssd1306_display();
+//}
 
+//static ret_code_t _uninit_commands(void)
+//{
+//}
 
-#ifdef USE_ISR
-typedef enum {
-	UPDATE_PHASE_IDLE,
-	UPDATE_PHASE_COMMAND,
-	UPDATE_PHASE_DATA,
-} m_update_phase_t;
+//#ifdef USE_ISR
+//typedef enum {
+//	UPDATE_PHASE_IDLE,
+//	UPDATE_PHASE_COMMAND,
+//	UPDATE_PHASE_DATA,
+//} m_update_phase_t;
 
-static void _twi_handler( nrf_drv_twi_evt_t const * p_event, void * p_context )
-{
-// Static update parameters
-	static m_update_phase_t phase = UPDATE_PHASE_IDLE;
-	static uint8_t row = 0;
-	static uint8_t * ptr = NULL;
-	static uint8_t commands[] = {
-		SSD1306_CMD_SET_PAGE(0),
-		SSD1306_CMD_COL_LOWER(0),
-		SSD1306_CMD_COL_UPPER(0),
-	};
+//static void _twi_handler( nrf_drv_twi_evt_t const * p_event, void * p_context )
+//{
+//// Static update parameters
+//	static m_update_phase_t phase = UPDATE_PHASE_IDLE;
+//	static uint8_t row = 0;
+//	static uint8_t * ptr = NULL;
+//	static uint8_t commands[] = {
+//		SSD1306_CMD_SET_PAGE(0),
+//		SSD1306_CMD_COL_LOWER(0),
+//		SSD1306_CMD_COL_UPPER(0),
+//	};
 
-	bool repeat = false;
-	do {
-		// Process start of update
-		if ( phase == UPDATE_PHASE_IDLE && m_runUpdate ) {
-			row = 0;
-			ptr = m_ssd1306.display_buf;
-			m_runUpdate = false;
-			phase = UPDATE_PHASE_COMMAND;
-		}
+//	bool repeat = false;
+//	do {
+//		// Process start of update
+//		if ( phase == UPDATE_PHASE_IDLE && m_runUpdate ) {
+//			row = 0;
+//			ptr = m_ssd1306.display_buf;
+//			m_runUpdate = false;
+//			phase = UPDATE_PHASE_COMMAND;
+//		}
 
-		// Process update
-		if ( phase == UPDATE_PHASE_COMMAND ) {
-			commands[3] = row;
-			write_commands_start( commands, sizeof(commands) );
-			phase = UPDATE_PHASE_DATA;
-		} else if ( phase == UPDATE_PHASE_DATA ) {
-			write_data_start( ptr, SSD1306_COLS );
-			ptr += SSD1306_COLS;
-			if ( ++row >= SSD1306_ROWS ) {
-				// Update done, exit
-				phase = UPDATE_PHASE_IDLE;
-			} else {
-				phase = UPDATE_PHASE_COMMAND;
-			}
-		}
+//		// Process update
+//		if ( phase == UPDATE_PHASE_COMMAND ) {
+//			commands[3] = row;
+//			write_commands_start( commands, sizeof(commands) );
+//			phase = UPDATE_PHASE_DATA;
+//		} else if ( phase == UPDATE_PHASE_DATA ) {
+//			write_data_start( ptr, SSD1306_COLS );
+//			ptr += SSD1306_COLS;
+//			if ( ++row >= SSD1306_ROWS ) {
+//				// Update done, exit
+//				phase = UPDATE_PHASE_IDLE;
+//			} else {
+//				phase = UPDATE_PHASE_COMMAND;
+//			}
+//		}
 
-		if ( phase == UPDATE_PHASE_IDLE ) {
-			// Clear busy flag to notify anything blocking
-			m_twi_is_busy = false;
-			// Check if update went pending while already updating
-			if ( m_runUpdate )
-				repeat = true;
-		}
-	} while ( repeat );
-}
-#endif
+//		if ( phase == UPDATE_PHASE_IDLE ) {
+//			// Clear busy flag to notify anything blocking
+//			m_twi_is_busy = false;
+//			// Check if update went pending while already updating
+//			if ( m_runUpdate )
+//				repeat = true;
+//		}
+//	} while ( repeat );
+//}
+//#endif
 
-static ret_code_t hardware_init(void)
-{
-	ret_code_t err_code;
+//static ret_code_t hardware_init(void)
+//{
+//	ret_code_t err_code;
 
-	nrf_drv_twi_config_t twi_config = NRF_DRV_TWI_DEFAULT_CONFIG;
-	twi_config.scl = SSD1306_SCL_PIN;
-	twi_config.sda = SSD1306_SDA_PIN;
+//	nrf_drv_twi_config_t twi_config = NRF_DRV_TWI_DEFAULT_CONFIG;
+//	twi_config.scl = SSD1306_SCL_PIN;
+//	twi_config.sda = SSD1306_SDA_PIN;
 
-	err_code = nrf_drv_twi_init( &twi_inst, &twi_config, _twi_handler, NULL );
-	//err_code = nrf_drv_twi_init( &twi_inst, &twi_config, NULL, NULL );
+//	err_code = nrf_drv_twi_init( &twi_inst, &twi_config, _twi_handler, NULL );
+//	//err_code = nrf_drv_twi_init( &twi_inst, &twi_config, NULL, NULL );
 
-	return err_code;
-}
+//	return err_code;
+//}
 
 static ret_code_t _ssd1306_init(void)
 {
-	ret_code_t err_code = hardware_init();
-	if (err_code != NRF_SUCCESS) {
-		return err_code;
-	}
+	if ( !m_twi_semaphore )
+		m_twi_semaphore = xSemaphoreCreateBinary();
+	if ( !m_twi_mutex )
+		m_twi_mutex = xSemaphoreCreateMutex();
 
-	_init_commands();
+	//return _init_commands();
+	return write_commands_blocking( init_commands, sizeof(init_commands) );
 
-	return err_code;
+	//return err_code;
 }
 
 static void _ssd1306_uninit(void)
 {
-	nrf_drv_twi_uninit(&twi_inst);
+	write_commands_blocking( init_commands, sizeof(uninit_commands) );
 }
 
 //################################################################################
