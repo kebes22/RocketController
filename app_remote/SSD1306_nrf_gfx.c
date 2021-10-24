@@ -3,6 +3,16 @@
 
 #if NRF_MODULE_ENABLED(SSD1306)
 
+#define NRF_LOG_MODULE_NAME SSD1306
+#ifdef SSD1306_LOG_LEVEL
+#define	NRF_LOG_LEVEL SSD1306_LOG_LEVEL
+#else
+#define	NRF_LOG_LEVEL 1
+#endif
+#include "nrf_log.h"
+#include "nrf_log_ctrl.h"
+NRF_LOG_MODULE_REGISTER();
+
 #include "nrf_lcd.h"
 //#include "nrf_drv_spi.h"
 #include "nrf_delay.h"
@@ -94,22 +104,25 @@ static ssd1306_t m_ssd1306;
 
 #define SSD1306_CMD_NOP					CONT, (0xE3)
 
+#define SSD1306_CMD_SET_PAGE_RAW(x)		(0xB0|(x&0b111))				// raw page command (no control byte) = 0-3 (0-7 for 128x64)
+
 //################################################################################
 //	Init/uninit commands
 //################################################################################
 static uint8_t init_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
 	SSD1306_CMD_CLK_DIV(8,0),
-	SSD1306_CMD_SET_MUX(0x1F),
+	SSD1306_CMD_SET_MUX(0x1F),		// 32 lines
 	SSD1306_CMD_DISP_OFFSET(0),
 	SSD1306_CMD_START_LINE(0),
 	SSD1306_CMD_CHG_PUMMP(1),
-	SSD1306_CMD_SEG_REMAP(1),
-	SSD1306_CMD_COM_DIR(1),
+	//SSD1306_CMD_SEG_REMAP(1),
+	//SSD1306_CMD_COM_DIR(1),
 	SSD1306_CMD_COM_PINS(0,0),
-	SSD1306_CMD_CONTRAST(0x80),
-	SSD1306_CMD_PRE_CHG(1,15),
-	SSD1306_CMD_VCOM_DESEL(4),
+	SSD1306_CMD_CONTRAST(0x80),		// Start at center contrast
+	SSD1306_CMD_PRE_CHG(15,1),
+	SSD1306_CMD_VCOM_DESEL(0),		// 0 gives greatest contrast range
+	SSD1306_CMD_INVERT(0),
 	SSD1306_CMD_ALL_ON(0),
 	SSD1306_CMD_DISP_ON(1),
 };
@@ -118,8 +131,7 @@ static uint8_t uninit_commands[] = {
 	SSD1306_CMD_DISP_ON(0),
 };
 
-static uint8_t display_commands[] = {
-	SSD1306_CMD_ADDR_MODE(0),		// Continuous horizontal addressing with wrap
+static uint8_t page_commands[] = {
 	SSD1306_CMD_SET_PAGE(0),		// Row 0
 	SSD1306_CMD_COL_UPPER(0),		// Col 0
 	SSD1306_CMD_COL_LOWER(0),		// Col 0
@@ -132,7 +144,7 @@ static SemaphoreHandle_t	m_twi_semaphore = NULL;
 static SemaphoreHandle_t	m_twi_mutex = NULL;
 static volatile ret_code_t	m_twi_result = 0;
 
-#define COMMS_TIMEOUT 100
+#define COMMS_TIMEOUT 10
 
 /**
  * @brief Callback for I2C writes
@@ -224,46 +236,36 @@ static ret_code_t _i2c_write( uint8_t* p_data, uint16_t len, bool is_data, bool 
 //	Display update code
 //################################################################################
 typedef enum {
-	UPDATE_PHASE_COMMAND,
-	UPDATE_PHASE_DATA,
+	UPDATE_PHASE_START,
+	UPDATE_PHASE_ROW,
 } m_update_phase_t;
 
 // State machine run from the twi callback (isr)
 static void _display_isr_state_machine(ret_code_t result, void * p_user_data)
 {
 	// Static update parameters
-	static m_update_phase_t phase = UPDATE_PHASE_COMMAND;
+	static m_update_phase_t phase = UPDATE_PHASE_START;
 	static uint8_t row = 0;
 
 	bool repeat = false;
 	do {
 		// Check for update flag, and start process
-		if ( phase == UPDATE_PHASE_COMMAND && m_ssd1306.runUpdate ) {
-			// Send command list to prepare for data
+		if ( phase == UPDATE_PHASE_START && m_ssd1306.runUpdate ) {
 			m_ssd1306.runUpdate = false;
 			row = 0;
-			static nrf_twi_mngr_transfer_t const commands_transfers[] =
-			{
-				NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, display_commands, sizeof(display_commands), 0),
-			};
-			static nrf_twi_mngr_transaction_t const commands_transaction =
-			{
-				.callback				= _display_isr_state_machine,
-				.p_user_data			= NULL,
-				.p_transfers			= commands_transfers,
-				.number_of_transfers	= ARRAY_SIZE(commands_transfers)
-			};
-			nrf_twi_mngr_schedule(hardware.drivers.p_twi_0, &commands_transaction);
-			phase = UPDATE_PHASE_DATA;
-			return;
-		} else if ( phase == UPDATE_PHASE_DATA ) {
+			phase = UPDATE_PHASE_ROW;
+		}
+		if ( phase == UPDATE_PHASE_ROW ) {
 			if ( row < SSD1306_ROWS ) {
 				static nrf_twi_mngr_transfer_t display_transfers[] =
 				{
+					NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, page_commands, sizeof(page_commands), 0),
 					NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, m_ssd1306.display_buf[0], sizeof(m_ssd1306.display_buf[0]), 0),
 				};
-				display_transfers[0].p_data = m_ssd1306.display_buf[row++]; // Update pointer based on row
-				display_transfers[0].p_data[0] = CONT_DATA;					// Make sure it is flagged as data
+				// Modify values in transfer structures
+				page_commands[1] = SSD1306_CMD_SET_PAGE_RAW(row);
+				display_transfers[1].p_data = m_ssd1306.display_buf[row]; // Update pointer based on row
+				display_transfers[1].p_data[0] = CONT_DATA;					// Make sure it is flagged as data
 				static nrf_twi_mngr_transaction_t const display_transaction =
 				{
 					.callback				= _display_isr_state_machine,
@@ -272,9 +274,10 @@ static void _display_isr_state_machine(ret_code_t result, void * p_user_data)
 					.number_of_transfers	= ARRAY_SIZE(display_transfers)
 				};
 				nrf_twi_mngr_schedule(hardware.drivers.p_twi_0, &display_transaction);
+				row++;
 				return;
 			} else { // Done with rows
-				phase = UPDATE_PHASE_COMMAND;
+				phase = UPDATE_PHASE_START;
 				if ( m_ssd1306.runUpdate )
 					repeat = true;
 				else
@@ -291,6 +294,7 @@ static void twi_kickstart( void )
 	if ( m_ssd1306.twi_is_busy )
 		return;
 
+	//m_ssd1306.runUpdate = false;
 	m_ssd1306.twi_is_busy = true;
 	static uint8_t commands[] = {
 		SSD1306_CMD_NOP,
@@ -298,6 +302,7 @@ static void twi_kickstart( void )
 	static nrf_twi_mngr_transfer_t const transfers[] =
 	{
 		NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, commands, sizeof(commands), 0),
+		//NRF_TWI_MNGR_WRITE(SSD1306_TWI_ADDR, commands, 0, 0),
 	};
 	static nrf_twi_mngr_transaction_t const transaction =
 	{
@@ -318,16 +323,11 @@ static inline ret_code_t write_commands_blocking( uint8_t * p_data, uint16_t len
 	return _i2c_write( p_data, len, false, true );
 }
 
-//static inline ret_code_t write_data_blocking( uint8_t * p_data, uint16_t len )
-//{
-//	return _i2c_write( p_data, len, true, true );
-//}
-
 
 //################################################################################
 //	Utils
 //################################################################################
-#define SWAP(a,b)			do { typeof(a) temp=a; a=b; b=temp; } while(0)
+#define SWAP(a,b)						do { typeof(a) temp=a; a=b; b=temp; } while(0)
 #define _LIMIT_RANGE(_var,_min,_max)	do { if (_var<(_min)) _var=(_min); if (_var>(_max)) _var=(_max); } while(0)
 
 static void _rotate( int16_t *x, int16_t *y )
@@ -468,10 +468,10 @@ static void _ssd1306_rect_draw(uint16_t x, uint16_t y, uint16_t width, uint16_t 
 
 static void _ssd1306_display(void)
 {
-	CRITICAL_REGION_ENTER();
+	//CRITICAL_REGION_ENTER();
 		m_ssd1306.runUpdate = true;
 		twi_kickstart();
-	CRITICAL_REGION_EXIT();
+	//CRITICAL_REGION_EXIT();
 }
 
 static void _ssd1306_rotation_set(nrf_lcd_rotation_t rotation)
@@ -500,6 +500,19 @@ static void _load_pattern( void )
 	}
 }
 
+static void _clear_screen( void )
+{
+#if 0
+	_load_pattern();
+	return;
+#else
+	for ( int r=0; r<SSD1306_ROWS; r++ ) {
+		for ( int c=0; c<SSD1306_COLS; c++ )
+			m_ssd1306.display_buf[r][c+1] = 0;
+	}
+#endif
+}
+
 static ret_code_t _ssd1306_init(void)
 {
 	if ( !m_twi_semaphore )
@@ -507,9 +520,10 @@ static ret_code_t _ssd1306_init(void)
 	if ( !m_twi_mutex )
 		m_twi_mutex = xSemaphoreCreateMutex();
 
+	_clear_screen();
+
 	ret_code_t error = write_commands_blocking( init_commands, sizeof(init_commands) );
 	if ( !error ) {
-		_load_pattern();
 		_ssd1306_display();
 	}
 	return error;

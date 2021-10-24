@@ -532,7 +532,43 @@ static void _startup_button_check( void )
 //################################################################################
 //	RTOS Threads / Init
 //################################################################################
+static bool do_update = false;
+static void _check_for_update( void )
+{
+	if ( do_update ) {
+		do_update = false;
+		GLCD_Update();
+	}
+}
 
+static void _draw_test_screen( void )
+{
+	////GLCD_Goto(0,0);
+	////GLCD_PutString("Hello World");
+	//GLCD_Goto(0,0);
+	//GLCD_PutString("!\"#$%&'()*+,-./012345");
+	//GLCD_Goto(0,8);
+	//GLCD_PutString("6789:;<=>?@ABCDEFGHIJ");
+	//GLCD_Goto(0,16);
+	//GLCD_PutString("KLMNOPQRSTUVWXYZ[\\]^_");
+	//GLCD_Goto(0,24);
+	//GLCD_PutString("`abcdefghijklmnopqrst");
+	////GLCD_Goto(0,0);
+	////GLCD_PutString("uvwxyz{|}~");
+	////GLCD_Goto(0,0);
+	////GLCD_PutString("Hello World");
+
+	GLCD_Goto(0,0);
+	GLCD_PutString("abcdefghijklmnopqrstu");
+	GLCD_Goto(0,8);
+	GLCD_PutString("vwxyz");
+	GLCD_Goto(0,16);
+	GLCD_PutString("ABCDEFGHIJKLMNOPQRSTU");
+	GLCD_Goto(0,24);
+	GLCD_PutString("VWXYZ");
+
+	GLCD_Update();
+}
 
 static void ui_thread( void * arg )
 {
@@ -554,7 +590,9 @@ static void ui_thread( void * arg )
 		_do_suicide();
 
 	Devices_Init();  // Initializes flash memory.
-	GLCD_Init( &nrf_lcd_ssd1306, NRF_LCD_ROTATE_0 );
+
+	GLCD_Init( &nrf_lcd_ssd1306, NRF_LCD_ROTATE_180 );
+	_draw_test_screen();
 
 	_startup_button_wait();
 
@@ -567,6 +605,9 @@ static void ui_thread( void * arg )
 #else
         vTaskDelay( xFrequency );
 #endif
+
+		_check_for_update();	// TODO debug
+
 		_adc_sample_and_wait();
 		ButtonProcess(&button1, !nrf_gpio_pin_read(BUTTON1_IN_PIN), UI_THREAD_INTERVAL);
 		ButtonProcess(&button2, !nrf_gpio_pin_read(BUTTON2_IN_PIN), UI_THREAD_INTERVAL);

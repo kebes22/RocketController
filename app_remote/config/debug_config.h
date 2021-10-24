@@ -35,7 +35,7 @@
 #define UI_LOG_LEVEL						3
 #define LIS3DH_LOG_LEVEL					3
 #define TXRX_COMMS_LOG_LEVEL				4
-
+#define SSD1306_LOG_LEVEL					4
 
 
 
