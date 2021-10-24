@@ -274,7 +274,7 @@ static void _display_isr_state_machine(ret_code_t result, void * p_user_data)
 				nrf_twi_mngr_schedule(hardware.drivers.p_twi_0, &display_transaction);
 				return;
 			} else { // Done with rows
-				phase = UPDATE_PHASE_DATA;
+				phase = UPDATE_PHASE_COMMAND;
 				if ( m_ssd1306.runUpdate )
 					repeat = true;
 				else
