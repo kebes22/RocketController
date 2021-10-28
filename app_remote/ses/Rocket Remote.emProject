@@ -133,6 +133,7 @@
         <file file_name="../config/app_config.h" />
         <file file_name="../config/io_config.h" />
         <file file_name="../config/debug_config.h" />
+        <file file_name="../config/lv_conf.h" />
       </folder>
       <file file_name="../UI.c" />
       <file file_name="../UI.h" />
