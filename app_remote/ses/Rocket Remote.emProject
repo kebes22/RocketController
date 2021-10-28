@@ -197,6 +197,8 @@
         <file file_name="$(LIB_PATH)/graphics/glcd/GLCD.h" />
         <folder Name="fonts">
           <file file_name="$(LIB_PATH)/graphics/lcd_image_converter/fonts/ArialBlack36.c" />
+          <file file_name="../../lib/graphics/lcd_image_converter/tLCD_Fonts.h" />
+          <file file_name="../../lib/graphics/lcd_image_converter/fonts/Mono8.c" />
         </folder>
       </folder>
     </folder>
