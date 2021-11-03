@@ -37,6 +37,9 @@
 #include "comms.h"
 
 #include "GLCD.h"
+
+#include "lvgl.h"
+
 extern const nrf_lcd_t nrf_lcd_ssd1306;
 
 #define UI_THREAD_INTERVAL		10
@@ -529,6 +532,69 @@ static void _startup_button_check( void )
 }
 #endif
 
+
+//################################################################################
+//	LVGL
+//################################################################################
+#define DRAW_BUF_SIZE 1024
+/*Static or global buffer(s). The second buffer is optional*/
+static lv_color_t lv_buf_1[DRAW_BUF_SIZE];
+//static lv_color_t lv_buf_2[DRAW_BUF_SIZE];
+/*A static or global variable to store the buffers*/
+static lv_disp_draw_buf_t	disp_buf;
+static lv_disp_drv_t		disp_drv;          /*A variable to hold the drivers. Must be static or global.*/
+
+void my_flush_cb(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_color_t * color_p)
+{
+	//NRF_LOG_DEBUG( "Flush: {%d,%d},{%d,%d}", area->x1, area->y1, area->x2, area->y2 );
+    /*The most simple case (but also the slowest) to put all pixels to the screen one-by-one
+     *`put_px` is just an example, it needs to implemented by you.*/
+    int32_t x, y;
+    for(y = area->y1; y <= area->y2; y++) {
+        for(x = area->x1; x <= area->x2; x++) {
+            //put_px(x, y, *color_p)
+			nrf_lcd_ssd1306.lcd_pixel_draw(x,y,(uint32_t)color_p->full);
+			color_p++;
+        }
+    }
+
+	// Update the display if this is the last area
+	if ( lv_disp_flush_is_last(disp_drv) )
+		GLCD_Update();
+
+    /* IMPORTANT!!!
+     * Inform the graphics library that you are ready with the flushing*/
+    lv_disp_flush_ready(disp_drv);
+}
+
+
+
+void	Disp_Init( void )
+{
+	// TODO find better place for this
+	lv_init();
+
+// Display buffers
+	/*Initialize `disp_buf` with the buffer(s). With only one buffer use NULL instead buf_2 */
+	//lv_disp_draw_buf_init(&disp_buf, lv_buf_1, lv_buf_2, DRAW_BUF_SIZE);
+	lv_disp_draw_buf_init(&disp_buf, lv_buf_1, NULL, DRAW_BUF_SIZE);
+
+// Display Driver
+	lv_disp_drv_init(&disp_drv);            /*Basic initialization*/
+	disp_drv.draw_buf = &disp_buf;          /*Set an initialized buffer*/
+	disp_drv.flush_cb = my_flush_cb;        /*Set a flush callback to draw to the display*/
+	disp_drv.hor_res = 128;                 /*Set the horizontal resolution in pixels*/
+	disp_drv.ver_res = 32;                  /*Set the vertical resolution in pixels*/
+
+	lv_disp_t * disp;
+	disp = lv_disp_drv_register(&disp_drv); /*Register the driver and save the created display objects*/
+
+	lv_theme_t * p_theme = lv_theme_mono_init(NULL, true, LV_FONT_DEFAULT);
+	lv_disp_set_theme( NULL, p_theme );
+}
+
+
+
 //################################################################################
 //	RTOS Threads / Init
 //################################################################################
@@ -594,6 +660,8 @@ static void ui_thread( void * arg )
 	GLCD_Init( &nrf_lcd_ssd1306, NRF_LCD_ROTATE_180 );
 	_draw_test_screen();
 
+	Disp_Init();
+
 	_startup_button_wait();
 
 	advertising_start(BLE_ADV_MODE_FAST);
@@ -616,6 +684,9 @@ static void ui_thread( void * arg )
 		charger_update( &ui_status.charger, vBatt );
 		StateControl();
 
+		// TODO find better place for this
+		lv_task_handler();
+
 #if 0
 		if ( button1.onEvent ) {
 			comms_send_button( 1 );
@@ -635,9 +706,6 @@ static void ui_thread( void * arg )
 	}
 }
 
-
-
-
 void	UI_Init( void )
 {
 	nrf_gpio_cfg_input( BUTTON1_IN_PIN, NRF_GPIO_PIN_PULLUP );
@@ -647,7 +715,7 @@ void	UI_Init( void )
 	nrf_gpio_pin_write( EN_5V_PIN, 1 );
 
 	// Create Hub UI thread
-	if ( pdPASS != xTaskCreate(ui_thread, "UI", 256, NULL, 2, &m_ui_thread) ) {
+	if ( pdPASS != xTaskCreate(ui_thread, "UI", 1024, NULL, 2, &m_ui_thread) ) {
 		APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
 	}
 
@@ -672,3 +740,5 @@ void	UI_Init( void )
 	charger_init( &ui_status.charger, &chargerConfig );
 
 }
+
+
