@@ -48,6 +48,8 @@ extern const nrf_lcd_t nrf_lcd_ssd1306;
 //################################################################################
 //	Function prototypes
 //################################################################################
+static bool isInit = false;
+
 static void _do_suicide( void );
 
 
@@ -445,8 +447,10 @@ static void _do_suicide( void )
 		return;
 
 	NRF_LOG_INFO( "Shutting Down" );
-	leds.p_leds[0] = RGB_COLOR.BLACK;
-	nrf_gfx_uninit( &nrf_lcd_ssd1306 );
+	if ( isInit ) {
+		leds.p_leds[0] = RGB_COLOR.BLACK;
+		nrf_gfx_uninit( &nrf_lcd_ssd1306 );
+	}
 	vTaskDelay(50);
 	nrf_gpio_pin_write( EN_5V_PIN, 0 );	// Turn off leds
 	suicide();
@@ -666,6 +670,7 @@ static void ui_thread( void * arg )
 	_startup_button_wait();
 
 	advertising_start(BLE_ADV_MODE_FAST);
+	isInit = true;
 
 	while ( 1 )
 	{
