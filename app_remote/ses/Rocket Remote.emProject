@@ -143,6 +143,8 @@
       <file file_name="../comms.c" />
       <file file_name="../comms.h" />
       <file file_name="../SSD1306_nrf_gfx.c" />
+      <file file_name="../menus.c" />
+      <file file_name="../menus.h" />
     </folder>
     <configuration Name="Debug" arm_linker_stack_size="4096" />
     <folder Name="nRF_SoftDevice">

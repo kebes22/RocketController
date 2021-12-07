@@ -40,6 +40,8 @@
 
 #include "lvgl.h"
 
+#include "menus.h"
+
 extern const nrf_lcd_t nrf_lcd_ssd1306;
 
 #define UI_THREAD_INTERVAL		10
@@ -593,9 +595,11 @@ void	Disp_Init( void )
 	lv_disp_t * disp;
 	disp = lv_disp_drv_register(&disp_drv); /*Register the driver and save the created display objects*/
 
-	lv_theme_t * p_theme = lv_theme_mono_init(lv_disp_get_default(), true, LV_FONT_DEFAULT);
+	lv_theme_t * p_theme = lv_theme_mono_init( lv_disp_get_default(), true, LV_FONT_DEFAULT );
 	//lv_theme_t * p_theme = lv_theme_mono_init( lv_disp_get_default(), false, LV_FONT_DEFAULT );
 	lv_disp_set_theme( lv_disp_get_default(), p_theme );
+
+	menus_init();
 }
 
 
